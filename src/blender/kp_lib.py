@@ -67,9 +67,46 @@ def top_face_local_corners(obj):
     return _order_by_sign(verts, a, b)
 
 
+def top_face_local_corners_up(obj):
+    """返回**世界空间中朝上**那个面的 4 角点 (局部坐标), 固定绕序。
+
+    适用于"躺放"的条烟: 上表面 = 法线朝世界 +Z、面积最大的面, 与最长轴无关。
+    """
+    me = obj.data
+    R = obj.matrix_world.to_3x3()
+    best, best_score = None, -1.0
+    for p in me.polygons:
+        nw = R @ p.normal
+        if nw.length < 1e-9:
+            continue
+        up = nw.normalized().z
+        if up <= 0.1:                    # 必须朝上, 排除侧/底面
+            continue
+        score = p.area * up
+        if score > best_score:
+            best_score, best = score, p
+    if best is None:
+        raise SystemExit("[ERR] 找不到朝上的面")
+
+    nabs = [abs(best.normal[i]) for i in range(3)]
+    up_axis = max(range(3), key=lambda i: nabs[i])
+    a, b = [i for i in range(3) if i != up_axis]
+    verts = [me.vertices[i].co.copy() for i in best.vertices]
+    if len(verts) != 4:
+        verts = _quad_from_polygon(verts, a, b)
+    return _order_by_sign(verts, a, b)
+
+
 def top_face_world_corners(obj, method="face"):
-    """顶面 4 角点的世界坐标 (已乘 matrix_world)。"""
-    picker = top_face_local_corners_aabb if method == "aabb" else top_face_local_corners
+    """顶面 4 角点的世界坐标 (已乘 matrix_world)。
+
+    method: face=真实顶盖多边形(垂直最长轴, 适合竖立), up=世界朝上面(适合躺放),
+            aabb=旧版包围盒(汇报对照)。
+    """
+    pickers = {"aabb": top_face_local_corners_aabb,
+               "face": top_face_local_corners,
+               "up": top_face_local_corners_up}
+    picker = pickers.get(method, top_face_local_corners)
     mw = obj.matrix_world
     return [mw @ c for c in picker(obj)]
 

@@ -42,8 +42,10 @@ def parse_args():
     p.add_argument("--distance", type=float, default=0.0, help="相机距离(m), 0=按物体尺寸自动")
     p.add_argument("--lens", type=float, default=50.0, help="镜头焦距(mm)")
     p.add_argument("--bg", default="grey", choices=["grey", "white", "transparent"])
-    p.add_argument("--topface", default="face", choices=["face", "aabb"],
-                   help="顶面取点方式: face=真实顶盖多边形(默认), aabb=旧版包围盒(汇报对照)")
+    p.add_argument("--topface", default="face", choices=["face", "aabb", "up"],
+                   help="顶面取点方式: face=真实顶盖(竖立), up=世界朝上面(躺放), aabb=包围盒(对照)")
+    p.add_argument("--laydown", action="store_true",
+                   help="把条烟躺平: 最短轴竖直, 最大面贴地, 并加一块地面")
     return p.parse_args(argv)
 
 
@@ -61,6 +63,44 @@ def find_pack(name):
         d = o.dimensions
         return d.x * d.y * d.z
     return max(meshes, key=vol)
+
+
+def lay_down(obj):
+    """把物体躺平: 让最短的局部轴变成世界竖直方向(最大面贴地), 再落到 z=0。"""
+    import math
+
+    from mathutils import Vector
+
+    dims = list(obj.dimensions)               # 导入时旋转为单位阵, 即局部尺寸
+    short = min(range(3), key=lambda i: dims[i])
+    if short == 0:                             # x 最短 -> 绕 Y 转 90°, x→z
+        obj.rotation_euler = (0.0, math.radians(90), 0.0)
+    elif short == 1:                           # y 最短 -> 绕 X 转 90°, y→z
+        obj.rotation_euler = (math.radians(90), 0.0, 0.0)
+    else:                                      # z 已是最短, 无需旋转
+        obj.rotation_euler = (0.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+
+    zmin = min((obj.matrix_world @ Vector(c)).z for c in obj.bound_box)
+    obj.location.z -= zmin                     # 底面贴到 z=0
+    bpy.context.view_layer.update()
+    print(f"[INFO] laid down: shortest_axis={short} world_dims="
+          f"{tuple(round(d,4) for d in obj.dimensions)}")
+
+
+def add_ground():
+    """在 z=0 加一块地面, 模拟桌面/货架板。"""
+    if bpy.data.objects.get("Ground"):
+        return
+    bpy.ops.mesh.primitive_plane_add(size=2.0, location=(0, 0, 0))
+    g = bpy.context.active_object
+    g.name = "Ground"
+    mat = bpy.data.materials.new("GroundMat")
+    mat.use_nodes = True
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf:
+        bsdf.inputs["Base Color"].default_value = (0.55, 0.55, 0.58, 1.0)
+    g.data.materials.append(mat)
 
 
 def main():
@@ -84,6 +124,10 @@ def main():
 
     pack = find_pack(args.pack)
     print(f"[INFO] pack = {pack.name!r} dims={tuple(round(d,4) for d in pack.dimensions)}")
+
+    if args.laydown:
+        lay_down(pack)
+        add_ground()
 
     center = world_center(pack)
     max_dim = max(pack.dimensions)
