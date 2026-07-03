@@ -1,0 +1,3 @@
+# 校验/后处理脚本用 (系统 Python 3.9+ 运行, 非 Blender 内置 Python)
+pillow>=10.0
+numpy>=1.24
