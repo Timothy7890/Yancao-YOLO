@@ -10,7 +10,7 @@
      打包纹理并保存 .blend。
 
 用法:
-  python build_yanhe/scripts/blender_build.py --product Huangjinye   # -> data/yanhe/Huangjinye.blend
+  python build_yanhe/scripts/blender_build.py --product Huangjinye   # -> build_yanhe/Huangjinye/Huangjinye.blend
   python build_yanhe/scripts/blender_build.py --product Huangjinye --name 黄金叶 --out data/yanhe/黄金叶.blend
   # 只有一个产品时可省略 --product
   BLENDER=/path/to/Blender python build_yanhe/scripts/blender_build.py --product Huangjinye
@@ -66,7 +66,7 @@ def main():
     ap.add_argument("--product", default=None, help="产品(SKU)名, 即 build_yanhe/<Product>")
     ap.add_argument("--model", default=None, help="直接指定模型 JSON (覆盖 --product)")
     ap.add_argument("--name", default=None, help="Blender 里的对象名, 默认=产品名")
-    ap.add_argument("--out", default=None, help="输出 .blend, 默认 data/yanhe/<Product>.blend")
+    ap.add_argument("--out", default=None, help="输出 .blend, 默认 build_yanhe/<Product>/<Product>.blend")
     ap.add_argument("--blender", default=os.environ.get("BLENDER", _DEFAULT_BLENDER))
     args = ap.parse_args()
 
@@ -93,7 +93,7 @@ def main():
         model_path = os.path.join(product_dir, "box_model.json")
 
     name = args.name or product
-    out = args.out or os.path.join(_REPO, "data", "yanhe", f"{product}.blend")
+    out = args.out or os.path.join(product_dir, f"{product}.blend")
 
     if not os.path.exists(model_path):
         print(f"找不到模型 JSON: {model_path} (请先在网页里保存该产品)")

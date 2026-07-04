@@ -1,0 +1,349 @@
+{
+  "_note": "烟盒三维模型描述 (网页工具导出)。下游按 orientation_guide 构建带贴图模型。",
+  "product": "Liqun_2",
+  "convention": {
+    "axes": "X=长(length_x), Y=宽(width_y), Z=高(height_z)",
+    "origin": "底面中心 (盒子位于 z∈[0, height_z], XY 居中)",
+    "front_faces": "+X 方向 (前/后面在 YOZ 平面, 法线沿 X)",
+    "units": "mm",
+    "corner_order": "每个面按 [TL,TR,BR,BL] 记录, 对应贴图像素 (0,0),(W,0),(W,H),(0,H)"
+  },
+  "dimensions": {
+    "length_x": 149.0,
+    "width_y": 94.0,
+    "height_z": 66.8
+  },
+  "faces": {
+    "front": {
+      "cn": "前",
+      "normal": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "size_units": [
+        94.0,
+        66.8
+      ],
+      "image": "faces/front.png",
+      "texture_rotation_cw_deg": 180,
+      "texture_flip_horizontal": false,
+      "corners_box_coords": {
+        "TL": [
+          74.5,
+          -47.0,
+          66.8
+        ],
+        "TR": [
+          74.5,
+          47.0,
+          66.8
+        ],
+        "BR": [
+          74.5,
+          47.0,
+          0.0
+        ],
+        "BL": [
+          74.5,
+          -47.0,
+          0.0
+        ]
+      },
+      "uv": {
+        "TL": [
+          0,
+          0
+        ],
+        "TR": [
+          1,
+          0
+        ],
+        "BR": [
+          1,
+          1
+        ],
+        "BL": [
+          0,
+          1
+        ]
+      }
+    },
+    "back": {
+      "cn": "后",
+      "normal": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "size_units": [
+        94.0,
+        66.8
+      ],
+      "image": "faces/back.png",
+      "texture_rotation_cw_deg": 0,
+      "texture_flip_horizontal": false,
+      "corners_box_coords": {
+        "TL": [
+          -74.5,
+          47.0,
+          66.8
+        ],
+        "TR": [
+          -74.5,
+          -47.0,
+          66.8
+        ],
+        "BR": [
+          -74.5,
+          -47.0,
+          0.0
+        ],
+        "BL": [
+          -74.5,
+          47.0,
+          0.0
+        ]
+      },
+      "uv": {
+        "TL": [
+          0,
+          0
+        ],
+        "TR": [
+          1,
+          0
+        ],
+        "BR": [
+          1,
+          1
+        ],
+        "BL": [
+          0,
+          1
+        ]
+      }
+    },
+    "left": {
+      "cn": "左",
+      "normal": [
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "size_units": [
+        149.0,
+        66.8
+      ],
+      "image": "faces/left.png",
+      "texture_rotation_cw_deg": 270,
+      "texture_flip_horizontal": false,
+      "corners_box_coords": {
+        "TL": [
+          -74.5,
+          -47.0,
+          66.8
+        ],
+        "TR": [
+          74.5,
+          -47.0,
+          66.8
+        ],
+        "BR": [
+          74.5,
+          -47.0,
+          0.0
+        ],
+        "BL": [
+          -74.5,
+          -47.0,
+          0.0
+        ]
+      },
+      "uv": {
+        "TL": [
+          0,
+          0
+        ],
+        "TR": [
+          1,
+          0
+        ],
+        "BR": [
+          1,
+          1
+        ],
+        "BL": [
+          0,
+          1
+        ]
+      }
+    },
+    "right": {
+      "cn": "右",
+      "normal": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "size_units": [
+        149.0,
+        66.8
+      ],
+      "image": "faces/right.png",
+      "texture_rotation_cw_deg": 180,
+      "texture_flip_horizontal": false,
+      "corners_box_coords": {
+        "TL": [
+          74.5,
+          47.0,
+          66.8
+        ],
+        "TR": [
+          -74.5,
+          47.0,
+          66.8
+        ],
+        "BR": [
+          -74.5,
+          47.0,
+          0.0
+        ],
+        "BL": [
+          74.5,
+          47.0,
+          0.0
+        ]
+      },
+      "uv": {
+        "TL": [
+          0,
+          0
+        ],
+        "TR": [
+          1,
+          0
+        ],
+        "BR": [
+          1,
+          1
+        ],
+        "BL": [
+          0,
+          1
+        ]
+      }
+    },
+    "top": {
+      "cn": "顶",
+      "normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "size_units": [
+        149.0,
+        94.0
+      ],
+      "image": "faces/top.png",
+      "texture_rotation_cw_deg": 90,
+      "texture_flip_horizontal": false,
+      "corners_box_coords": {
+        "TL": [
+          -74.5,
+          47.0,
+          66.8
+        ],
+        "TR": [
+          74.5,
+          47.0,
+          66.8
+        ],
+        "BR": [
+          74.5,
+          -47.0,
+          66.8
+        ],
+        "BL": [
+          -74.5,
+          -47.0,
+          66.8
+        ]
+      },
+      "uv": {
+        "TL": [
+          0,
+          0
+        ],
+        "TR": [
+          1,
+          0
+        ],
+        "BR": [
+          1,
+          1
+        ],
+        "BL": [
+          0,
+          1
+        ]
+      }
+    },
+    "bottom": {
+      "cn": "底",
+      "normal": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "size_units": [
+        149.0,
+        94.0
+      ],
+      "image": "faces/bottom.png",
+      "texture_rotation_cw_deg": 270,
+      "texture_flip_horizontal": false,
+      "corners_box_coords": {
+        "TL": [
+          74.5,
+          47.0,
+          0.0
+        ],
+        "TR": [
+          -74.5,
+          47.0,
+          0.0
+        ],
+        "BR": [
+          -74.5,
+          -47.0,
+          0.0
+        ],
+        "BL": [
+          74.5,
+          -47.0,
+          0.0
+        ]
+      },
+      "uv": {
+        "TL": [
+          0,
+          0
+        ],
+        "TR": [
+          1,
+          0
+        ],
+        "BR": [
+          1,
+          1
+        ],
+        "BL": [
+          0,
+          1
+        ]
+      }
+    }
+  },
+  "orientation_guide": "构建步骤: 1) 建尺寸 length_x×width_y×height_z 的长方体, 原点在底面中心 (盒子位于 z∈[0,height_z], XY 居中)。 2) 每个面若 image 非空则加载贴图(相对本产品目录); 先按 texture_flip_horizontal 水平镜像, 再按 texture_rotation_cw_deg 顺时针旋转。 3) 把贴图四角 (0,0)/(W,0)/(W,H)/(0,H) 分别贴到该面 corners_box_coords 的 TL/TR/BR/BL (盒内坐标, 单位见 convention.units)。 4) normal 为该面朝外世界法线, 正面 front 朝 +X (前/后面在 YOZ 平面), 用于判断朝向。"
+}

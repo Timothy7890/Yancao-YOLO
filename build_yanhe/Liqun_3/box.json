@@ -1,0 +1,7 @@
+{
+  "_note": "烟盒三边长。X=长(length_x), Y=宽(width_y), Z=高(height_z)。",
+  "units": "mm",
+  "length_x": 269.0,
+  "width_y": 87.0,
+  "height_z": 45.0
+}

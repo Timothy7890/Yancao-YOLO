@@ -1,0 +1,64 @@
+{
+  "_note": "批量合成数据集主配置。路径相对仓库根。需手工确定的两处已标 <手工>: shelf.board_length_x/width_y 与 camera.distance/work_layer。",
+
+  "paths": {
+    "sku_dir": "data/yanhe",
+    "shelf_blend": "data/jiazi/shelf.blend",
+    "camera_config": "config/camera.json",
+    "base_scene": "data/jiazi/base_scene.blend",
+    "out_dir": "output/dataset"
+  },
+
+  "shelf": {
+    "board_name_prefix": "Shelf_Board_",
+    "board_length_x": 1.12,
+    "board_width_y": 0.50,
+    "auto_generate_if_missing": true,
+    "generate": {
+      "width": 1.2, "depth": 0.5, "height": 2.0,
+      "shelves": 5, "skip_board_layers": [3]
+    }
+  },
+
+  "camera": {
+    "work_layer": 2,
+    "distance": 0.9,
+    "target_z_offset": 0.03,
+    "overscan": 48,
+    "jitter": { "pos_m": 0.03, "yaw_deg": 2.0, "pitch_deg": 2.0, "distance_m": 0.08 }
+  },
+
+  "lights": {
+    "preset": "factory_led",
+    "top_power": [150.0, 260.0],
+    "ambient": [0.30, 0.55]
+  },
+
+  "placement": {
+    "layers": [1, 2],
+    "count_per_layer": [1, 4],
+    "sku_choices": [],
+    "yaw_deg": [-25.0, 25.0],
+    "gap_m": 0.012,
+    "edge_margin_m": 0.02,
+    "pos_jitter_m": 0.008
+  },
+
+  "render": {
+    "engine": "BLENDER_EEVEE_NEXT",
+    "samples": 64
+  },
+
+  "dataset": {
+    "num_frames": 50,
+    "seed": 12345,
+    "val_ratio": 0.2,
+    "apply_distortion": true
+  },
+
+  "label": {
+    "class_id": 0,
+    "class_name": "pack",
+    "num_keypoints": 4
+  }
+}
