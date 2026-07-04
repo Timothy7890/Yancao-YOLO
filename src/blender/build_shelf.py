@@ -89,40 +89,45 @@ def build(args):
     post, board, beam = args.post, args.board, args.beam
     mat = steel_material()
 
-    parts = []
+    posts = []
     # 4 根立柱 (角上)
     px = W / 2 - post / 2
     py = D / 2 - post / 2
     for i, (sx, sy) in enumerate([(-1, -1), (1, -1), (1, 1), (-1, 1)]):
         p = make_box(f"Shelf_Post_{i}", (post, post, H), (sx * px, sy * py, H / 2))
-        parts.append(p)
+        posts.append(p)
 
     skip = set(args.skip_board_layers)
     boards = []
+    beams = []                                # (beam_obj, parent_board)
     for i, z in enumerate(shelf_heights(args.shelves, args.base_gap, H, board)):
         if i in skip:                        # 该层不生成隔板与横梁, 只留立柱
             continue
-        # 前后两根横梁 (沿 X), 位于板底
+        # 隔板
+        bd = make_box(f"Shelf_Board_{i}", (W - 2 * post, D, board), (0.0, 0.0, z + board / 2))
+        boards.append(bd)
+        # 前后两根横梁 (沿 X), 位于板底, 绑定到本层隔板 -> 隔板升降/缩放时横梁跟随
         for sy in (-1, 1):
             b = make_box(f"Shelf_Beam_{i}_{'f' if sy < 0 else 'b'}",
                          (W - 2 * post, beam, beam),
                          (0.0, sy * (D / 2 - post - beam / 2), z - board / 2 - beam / 2))
-            parts.append(b)
-        # 隔板
-        bd = make_box(f"Shelf_Board_{i}", (W - 2 * post, D, board), (0.0, 0.0, z + board / 2))
-        boards.append(bd)
+            beams.append((b, bd))
 
-    # 合并框架 (立柱+横梁) 成一个对象, 隔板保持独立便于码放查询
+    # 只合并 4 根立柱成 Shelf_Frame; 隔板独立便于码放查询, 横梁父级绑到隔板
     for o in bpy.data.objects:
         o.select_set(False)
-    for p in parts:
+    for p in posts:
         p.select_set(True)
-    bpy.context.view_layer.objects.active = parts[0]
+    bpy.context.view_layer.objects.active = posts[0]
     bpy.ops.object.join()
     frame = bpy.context.active_object
     frame.name = "Shelf_Frame"
 
-    for o in [frame] + boards:
+    for b, bd in beams:
+        b.parent = bd
+        b.matrix_parent_inverse = bd.matrix_world.inverted()
+
+    for o in [frame] + boards + [b for b, _ in beams]:
         o.data.materials.clear()
         o.data.materials.append(mat)
 

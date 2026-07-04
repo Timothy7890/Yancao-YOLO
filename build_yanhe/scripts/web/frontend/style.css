@@ -1,0 +1,90 @@
+:root {
+  --bg: #14161a;
+  --panel: #1e2128;
+  --panel2: #262a33;
+  --line: #333844;
+  --fg: #e6e8ec;
+  --muted: #949aa6;
+  --accent: #4c9aff;
+  --accent2: #2f7be0;
+  --ok: #37c871;
+  --warn: #e0a341;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 14px;
+}
+#app { height: 100vh; display: flex; flex-direction: column; }
+
+header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+.dims { display: flex; align-items: center; gap: 6px; }
+.dims label { color: var(--muted); }
+.dims input { width: 62px; }
+input, select {
+  background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; font-size: 13px;
+}
+input[type=text] { width: 56px; }
+button {
+  background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+button.primary:hover { background: var(--accent); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.tabs { margin-left: auto; display: flex; gap: 8px; }
+.tabs button.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.msg { color: var(--warn); min-width: 120px; }
+.msg.ok { color: var(--ok); }
+
+main { flex: 1; min-height: 0; display: flex; }
+
+/* ---------- Step 1 ---------- */
+.faces-bar { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px; }
+.faces-bar .face-btn {
+  display: flex; align-items: center; gap: 6px; position: relative;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+.dot.filled { background: var(--ok); }
+.face-btn.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+
+.col { display: flex; flex-direction: column; min-height: 0; }
+.left-col { width: 150px; border-right: 1px solid var(--line); background: var(--panel); }
+.thumbs { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.thumb { border: 2px solid transparent; border-radius: 6px; cursor: pointer; overflow: hidden; }
+.thumb.sel { border-color: var(--accent); }
+.thumb img { width: 100%; display: block; }
+.thumb .cap { font-size: 11px; color: var(--muted); padding: 2px 4px; }
+
+.center-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+.canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 10px; width: 100%; }
+canvas.pick { background: #0c0e12; border: 1px solid var(--line); border-radius: 6px; cursor: crosshair; max-width: 100%; }
+.toolbar { display: flex; gap: 8px; align-items: center; padding: 8px; border-top: 1px solid var(--line); width: 100%; justify-content: center; background: var(--panel); }
+.hint { color: var(--muted); font-size: 12px; padding: 6px 10px; text-align: center; }
+
+.right-col { width: 220px; border-left: 1px solid var(--line); background: var(--panel); padding: 10px; }
+.right-col h3 { font-size: 13px; color: var(--muted); margin: 6px 0; }
+.preview { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #0c0e12; min-height: 80px; }
+
+/* ---------- Step 2 ---------- */
+.view3d { flex: 1; min-width: 0; position: relative; background: #0c0e12; }
+.view3d canvas { display: block; width: 100%; height: 100%; }
+.side { width: 300px; border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 12px; }
+.side h3 { margin: 4px 0 10px; font-size: 14px; }
+.face-row { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 10px; background: var(--panel2); }
+.face-row .head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.face-row .head b { font-size: 13px; }
+.face-row .head .sz { color: var(--muted); font-size: 11px; margin-left: auto; }
+.face-row .ctrls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.face-row select { flex: 1; min-width: 90px; }
+.face-row .mini { width: 44px; height: 44px; object-fit: cover; border: 1px solid var(--line); border-radius: 4px; background: #0c0e12; }
+.footnote { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: 8px; }

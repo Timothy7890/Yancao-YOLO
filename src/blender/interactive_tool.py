@@ -7,14 +7,19 @@
   4) 3D 视口按 N 打开侧栏 -> "烟草" 标签
 
 功能:
-  - 相机: 6 个方向按钮; 或点 "▶ 键盘驾驶" 进入模式后用 WASD(前后左右)/QE(上下) 推相机, 鼠标照常转视角, ESC 退出
+  - 相机: 应用标定相机(config); 6 个方向按钮; 或 "▶ 键盘驾驶" 用 WASD/QE 推相机
   - 烟盒: 偏航角滑块 (实时, 底面始终贴板)
-  - 面板: 长(X)/宽(Y) 滑块; 第三层高度滑块 (实时)
-  - "对齐相机到当前视角" / "打印相机位姿" 便于把机位喂给渲染管线
+  - 面板: 长(X)/宽(Y) 滑块 -> 隔板与立柱框架一起缩放; 选中层升降滑块 -> 该层横梁跟随
+  - 结构: "拆分横梁并绑定隔板" 把老货架里合并的 Shelf_Frame 拆出横梁并父级绑到各层板
+  - 灯光: "工厂LED布光" 一键铺顶部条形柔光 + 环境光, 少阴影, 保留膜面反光高光
+  - "拾取选中隔板" 把视口里选中的 Shelf_Board_* 设为当前操作层
   - "显示顶面四点" 在朝上面四角放标记, 随烟盒转动实时更新
 
-只依赖 bpy, 不引用项目其它脚本。要求场景里有 Shelf_Board_* 与 名字含 liqun/carton 的 MESH。
+只依赖 bpy(+可选 camera_config)。要求场景里有 Shelf_Board_* 与 名字含 liqun/carton 的 MESH。
 """
+
+import os
+import sys
 
 import bpy
 from bpy.props import BoolProperty, FloatProperty, IntProperty
@@ -22,6 +27,20 @@ from bpy.types import Operator, Panel
 from mathutils import Vector
 
 _updating = False          # 防止 Init 写属性时触发回调递归
+
+# 定位仓库, 加载 camera_config (供"应用标定相机"用)
+try:
+    _HERE = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    _HERE = "/Users/timo/code/Python/Yancao-YOLO/src/blender"
+_REPO = os.path.abspath(os.path.join(_HERE, "..", ".."))
+_CONFIG_PATH = os.path.join(_REPO, "config", "camera.json")
+sys.path.insert(0, os.path.join(_REPO, "src", "config"))
+try:
+    import camera_config as cc
+    _HAS_CC = True
+except Exception as _e:          # noqa: F841
+    _HAS_CC = False
 
 
 # ---------------- 场景查询/操作 ----------------
@@ -37,9 +56,52 @@ def get_boards():
                   key=lambda o: o.location.z)
 
 
+def get_frame():
+    return bpy.data.objects.get("Shelf_Frame")
+
+
+def get_beams():
+    return [o for o in bpy.data.objects if o.name.startswith("Shelf_Beam_")]
+
+
 def board_top_center(board):
     cs = [board.matrix_world @ Vector(c) for c in board.bound_box]
     return (sum(c.x for c in cs) / 8.0, sum(c.y for c in cs) / 8.0, max(c.z for c in cs))
+
+
+def world_center_z(o):
+    cs = [(o.matrix_world @ Vector(c)).z for c in o.bound_box]
+    return sum(cs) / 8.0
+
+
+def shelf_bounds():
+    """货架整体世界包围盒 (立柱+隔板), 返回 (minx,miny,minz,maxx,maxy,maxz)。"""
+    objs = [o for o in ([get_frame()] + get_boards()) if o]
+    if not objs:
+        return None
+    pts = [o.matrix_world @ Vector(c) for o in objs for c in o.bound_box]
+    xs = [p.x for p in pts]
+    ys = [p.y for p in pts]
+    zs = [p.z for p in pts]
+    return (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+
+
+def _center_frame_origin(context):
+    """把 Shelf_Frame 的原点移到几何包围盒中心(XY居中), 之后按比例缩放才对称。只做一次。"""
+    frame = get_frame()
+    if not frame or frame.get("yc_centered"):
+        return
+    if context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    for o in list(context.selected_objects):
+        o.select_set(False)
+    frame.select_set(True)
+    context.view_layer.objects.active = frame
+    try:
+        bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
+        frame["yc_centered"] = 1
+    except RuntimeError:
+        pass
 
 
 def reseat_carton():
@@ -124,9 +186,23 @@ def _on_yaw(self, context):
 def _on_board_size(self, context):
     if _updating:
         return
-    for b in get_boards():
+    boards = get_boards()
+    if not boards:
+        return
+    old_x = boards[0].dimensions.x
+    old_y = boards[0].dimensions.y
+    new_x = context.scene.yc_board_len
+    new_y = context.scene.yc_board_wid
+    for b in boards:
         d = b.dimensions
-        b.dimensions = Vector((context.scene.yc_board_len, context.scene.yc_board_wid, d.z))
+        b.dimensions = Vector((new_x, new_y, d.z))
+    # 立柱框架按同一比例缩放, 让立柱跟着隔板长宽走 (横梁若已绑到隔板会随板缩放)
+    frame = get_frame()
+    if frame and old_x > 1e-6 and old_y > 1e-6:
+        if not frame.get("yc_centered"):
+            _center_frame_origin(context)
+        frame.scale.x *= new_x / old_x
+        frame.scale.y *= new_y / old_y
     bpy.context.view_layer.update()
     reseat_carton()
     refresh_markers()
@@ -198,6 +274,35 @@ class YC_OT_drive(Operator):
         return {"RUNNING_MODAL"}
 
 
+class YC_OT_apply_config_cam(Operator):
+    bl_idname = "yc.apply_config_cam"
+    bl_label = "应用标定相机(config)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        if not _HAS_CC:
+            self.report({"ERROR"}, "找不到 camera_config, 无法读取配置")
+            return {"CANCELLED"}
+        if not os.path.exists(_CONFIG_PATH):
+            self.report({"ERROR"}, f"配置不存在: {_CONFIG_PATH}")
+            return {"CANCELLED"}
+        cfg = cc.load(_CONFIG_PATH)
+        boards = get_boards()
+        if not boards:
+            self.report({"ERROR"}, "场景没有 Shelf_Board_*")
+            return {"CANCELLED"}
+        layer = min(max(context.scene.yc_layer, 0), len(boards) - 1)
+        bcx, bcy, btop = board_top_center(boards[layer])
+        cam = context.scene.camera
+        if cam is None:
+            cam = bpy.data.objects.new("Camera", bpy.data.cameras.new("Camera"))
+            context.collection.objects.link(cam)
+        cc.place_camera_from_config(cam, cfg, (bcx, bcy, btop + 0.03), context.scene.yc_cam_dist)
+        refresh_markers()
+        self.report({"INFO"}, "已应用标定相机, 记得 Cmd+S 保存为默认")
+        return {"FINISHED"}
+
+
 class YC_OT_align_cam(Operator):
     bl_idname = "yc.align_cam"
     bl_label = "对齐相机到当前视角"
@@ -227,25 +332,168 @@ class YC_OT_print_pose(Operator):
         return {"FINISHED"}
 
 
+def sync_from_scene(context):
+    """把滑块值刷新为场景当前状态(按当前 yc_layer)。"""
+    global _updating
+    _updating = True
+    boards = get_boards()
+    carton = get_carton()
+    if boards:
+        layer = min(max(context.scene.yc_layer, 0), len(boards) - 1)
+        b = boards[layer]
+        context.scene.yc_board_len = boards[0].dimensions.x
+        context.scene.yc_board_wid = boards[0].dimensions.y
+        context.scene.yc_board3_z = b.location.z + b.dimensions.z / 2.0
+    if carton:
+        context.scene.yc_yaw = round(carton.rotation_euler.z * 57.2958, 1)
+    _updating = False
+    refresh_markers()
+
+
 class YC_OT_init(Operator):
     bl_idname = "yc.init"
     bl_label = "从场景读取当前值"
 
     def execute(self, context):
-        global _updating
-        _updating = True
+        _center_frame_origin(context)
+        sync_from_scene(context)
+        return {"FINISHED"}
+
+
+class YC_OT_pick_layer(Operator):
+    bl_idname = "yc.pick_layer"
+    bl_label = "拾取选中隔板"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        obj = context.active_object
+        if obj is None or not obj.name.startswith("Shelf_Board_"):
+            self.report({"ERROR"}, "请先在视口里点选一块 Shelf_Board_*")
+            return {"CANCELLED"}
         boards = get_boards()
-        carton = get_carton()
-        if boards:
-            layer = min(max(context.scene.yc_layer, 0), len(boards) - 1)
-            b = boards[layer]
-            context.scene.yc_board_len = boards[0].dimensions.x
-            context.scene.yc_board_wid = boards[0].dimensions.y
-            context.scene.yc_board3_z = b.location.z + b.dimensions.z / 2.0
-        if carton:
-            context.scene.yc_yaw = round(carton.rotation_euler.z * 57.2958, 1)
-        _updating = False
-        refresh_markers()
+        if obj not in boards:
+            self.report({"ERROR"}, "选中对象不是隔板")
+            return {"CANCELLED"}
+        context.scene.yc_layer = boards.index(obj)
+        sync_from_scene(context)
+        self.report({"INFO"}, f"当前操作层 = {context.scene.yc_layer}")
+        return {"FINISHED"}
+
+
+class YC_OT_split_frame(Operator):
+    bl_idname = "yc.split_frame"
+    bl_label = "拆分横梁并绑定隔板"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        frame = get_frame()
+        if frame is None:
+            self.report({"ERROR"}, "场景没有 Shelf_Frame")
+            return {"CANCELLED"}
+        if get_beams():
+            _center_frame_origin(context)
+            self.report({"INFO"}, "已是拆分结构, 无需再拆")
+            return {"FINISHED"}
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        for o in list(context.selected_objects):
+            o.select_set(False)
+        frame.select_set(True)
+        context.view_layer.objects.active = frame
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.separate(type="LOOSE")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        parts = list(context.selected_objects)
+        # 按竖直跨度分立柱(高)与横梁(矮)
+        posts = [o for o in parts if o.dimensions.z >= 0.3]
+        beams = [o for o in parts if o.dimensions.z < 0.3]
+        if not posts:
+            self.report({"ERROR"}, "没识别出立柱, 已取消")
+            return {"CANCELLED"}
+        for k, o in enumerate(parts):
+            o.name = f"_yc_part_{k}"
+        for o in list(context.selected_objects):
+            o.select_set(False)
+        for p in posts:
+            p.select_set(True)
+        context.view_layer.objects.active = posts[0]
+        bpy.ops.object.join()
+        newframe = context.view_layer.objects.active
+        newframe.name = "Shelf_Frame"
+        boards = get_boards()
+        for k, bm in enumerate(beams):
+            bm.name = f"Shelf_Beam_{k}"
+            bz = world_center_z(bm)
+            nearest = min(boards, key=lambda b: abs(world_center_z(b) - bz))
+            bm.parent = nearest
+            bm.matrix_parent_inverse = nearest.matrix_world.inverted()
+        _center_frame_origin(context)
+        self.report({"INFO"}, f"拆出 {len(posts)} 立柱 + {len(beams)} 横梁, 横梁已绑到隔板")
+        return {"FINISHED"}
+
+
+class YC_OT_factory_lights(Operator):
+    bl_idname = "yc.factory_lights"
+    bl_label = "工厂LED布光"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        scene = context.scene
+        for ident in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
+            try:
+                scene.render.engine = ident
+                break
+            except TypeError:
+                continue
+        b = shelf_bounds()
+        if b is None:
+            self.report({"ERROR"}, "场景没有货架, 无法定位灯")
+            return {"CANCELLED"}
+        minx, miny, minz, maxx, maxy, maxz = b
+        cx, cy = (minx + maxx) / 2.0, (miny + maxy) / 2.0
+        width, depth = maxx - minx, maxy - miny
+        power = scene.yc_light_power
+
+        for o in list(bpy.data.objects):
+            if o.name.startswith("YC_Light"):
+                bpy.data.objects.remove(o, do_unlink=True)
+
+        ceil = maxz + 1.0
+        n = 3
+        for j in range(n):
+            t = (j + 0.5) / n
+            y = miny + t * depth
+            ld = bpy.data.lights.new(f"YC_Light_top_{j}", "AREA")
+            ld.shape = "RECTANGLE"
+            ld.size = max(width * 1.2, 0.3)
+            ld.size_y = 0.12                      # 细长 -> 模拟条形 LED, 高光呈长条
+            ld.energy = power
+            ld.color = (1.0, 0.98, 0.95)
+            obj = bpy.data.objects.new(ld.name, ld)
+            context.collection.objects.link(obj)
+            obj.location = (cx, y, ceil)          # 朝下(默认 -Z)
+
+        # 正前方一盏大柔光补光, 抬升朝相机面亮度, 减少正面死黑
+        lf = bpy.data.lights.new("YC_Light_front", "AREA")
+        lf.shape = "RECTANGLE"
+        lf.size = max(width * 1.3, 0.3)
+        lf.size_y = max((maxz - minz) * 0.8, 0.3)
+        lf.energy = power * 0.5
+        lf.color = (1.0, 0.98, 0.95)
+        of = bpy.data.objects.new(lf.name, lf)
+        context.collection.objects.link(of)
+        of.location = (cx, miny - max(depth, 0.6), (minz + maxz) / 2.0)
+        d = Vector((cx, cy, (minz + maxz) / 2.0)) - of.location
+        of.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
+
+        world = scene.world or bpy.data.worlds.new("World")
+        scene.world = world
+        world.use_nodes = True
+        bg = world.node_tree.nodes.get("Background")
+        if bg:
+            bg.inputs["Color"].default_value = (0.9, 0.9, 0.92, 1.0)
+            bg.inputs["Strength"].default_value = scene.yc_ambient
+        self.report({"INFO"}, f"已布 {n} 条顶灯 + 1 补光 + 环境光, 功率 {power:.0f}W")
         return {"FINISHED"}
 
 
@@ -264,6 +512,9 @@ class YC_PT_panel(Panel):
 
         box = self.layout.box()
         box.label(text="相机", icon="CAMERA_DATA")
+        row = box.row(align=True)
+        row.operator("yc.apply_config_cam", icon="OUTLINER_OB_CAMERA")
+        row.prop(s, "yc_cam_dist", text="距")
         box.prop(s, "yc_step")
         box.operator("yc.drive", icon="PLAY")
         row = box.row(align=True)
@@ -280,7 +531,9 @@ class YC_PT_panel(Panel):
 
         box = self.layout.box()
         box.label(text="烟盒", icon="MESH_CUBE")
-        box.prop(s, "yc_layer")
+        row = box.row(align=True)
+        row.prop(s, "yc_layer")
+        row.operator("yc.pick_layer", text="", icon="EYEDROPPER")
         box.prop(s, "yc_yaw", slider=True)
         box.prop(s, "yc_markers")
 
@@ -288,16 +541,28 @@ class YC_PT_panel(Panel):
         box.label(text="面板", icon="MESH_PLANE")
         box.prop(s, "yc_board_len", slider=True)
         box.prop(s, "yc_board_wid", slider=True)
-        box.prop(s, "yc_board3_z", slider=True)
+        box.prop(s, "yc_board3_z", slider=True, text="选中层高度Z(m)")
+
+        box = self.layout.box()
+        box.label(text="结构", icon="MOD_BUILD")
+        box.operator("yc.split_frame", icon="UNLINKED")
+
+        box = self.layout.box()
+        box.label(text="灯光(工厂LED)", icon="LIGHT_AREA")
+        box.prop(s, "yc_light_power", slider=True)
+        box.prop(s, "yc_ambient", slider=True)
+        box.operator("yc.factory_lights", icon="OUTLINER_OB_LIGHT")
 
 
-_CLASSES = (YC_OT_move_cam, YC_OT_drive, YC_OT_align_cam, YC_OT_print_pose,
-            YC_OT_init, YC_PT_panel)
+_CLASSES = (YC_OT_move_cam, YC_OT_drive, YC_OT_apply_config_cam, YC_OT_align_cam,
+            YC_OT_print_pose, YC_OT_init, YC_OT_pick_layer, YC_OT_split_frame,
+            YC_OT_factory_lights, YC_PT_panel)
 
 
 def register():
     S = bpy.types.Scene
     S.yc_step = FloatProperty(name="步长(m)", default=0.05, min=0.001, max=1.0)
+    S.yc_cam_dist = FloatProperty(name="相机距离(m)", default=0.9, min=0.05, max=5.0)
     S.yc_layer = IntProperty(name="所在层", default=2, min=0, max=10)
     S.yc_yaw = FloatProperty(name="偏航角(°)", default=0.0, min=-180, max=180, update=_on_yaw)
     S.yc_markers = BoolProperty(name="显示顶面四点", default=False, update=_on_markers)
@@ -307,6 +572,8 @@ def register():
                                    update=_on_board_size)
     S.yc_board3_z = FloatProperty(name="该层高度Z(m)", default=1.072, min=0.0, max=3.0,
                                   update=_on_board3_z)
+    S.yc_light_power = FloatProperty(name="顶灯功率(W)", default=200.0, min=0.0, max=2000.0)
+    S.yc_ambient = FloatProperty(name="环境光强度", default=0.4, min=0.0, max=3.0)
     for c in _CLASSES:
         bpy.utils.register_class(c)
 
@@ -314,8 +581,9 @@ def register():
 def unregister():
     for c in reversed(_CLASSES):
         bpy.utils.unregister_class(c)
-    for p in ("yc_step", "yc_layer", "yc_yaw", "yc_markers",
-              "yc_board_len", "yc_board_wid", "yc_board3_z"):
+    for p in ("yc_step", "yc_cam_dist", "yc_layer", "yc_yaw", "yc_markers",
+              "yc_board_len", "yc_board_wid", "yc_board3_z",
+              "yc_light_power", "yc_ambient"):
         if hasattr(bpy.types.Scene, p):
             delattr(bpy.types.Scene, p)
 
