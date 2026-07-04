@@ -7,8 +7,23 @@
 """
 
 import numpy as np
+from PIL import Image
 
 from . import camera as cammod
+
+
+def load_overscan(png_path, meta):
+    """读入渲染图, 保持原始(可能是 SSAA 高分)分辨率, 返回 (H,W,4) uint8。
+
+    不在这里降采样: 畸变/裁剪都在最高分辨率上做, 最后再一次性降采样, 避免二次模糊。
+    """
+    return np.array(Image.open(png_path).convert("RGBA"))
+
+
+def _downscale(arr, w, h):
+    if arr.shape[1] == w and arr.shape[0] == h:
+        return arr
+    return np.array(Image.fromarray(arr).resize((w, h), Image.LANCZOS))
 
 
 def _clip_pt(x, y, w, h):
@@ -60,9 +75,15 @@ def process_frame(meta, overscan_arr, cam_cfg):
     """
     bw, bh = meta["base_width"], meta["base_height"]
     margin = meta["overscan_margin"]
+    ssaa = max(1, int(meta.get("ssaa", 1)))
 
-    ideal_img = overscan_arr[margin:margin + bh, margin:margin + bw] if margin > 0 else overscan_arr
-    dist_img = cammod.distort_image(overscan_arr, cam_cfg, margin=margin)
+    # ideal: 在高分图上裁剪内框, 再一次性 Lanczos 降采样到基准分辨率
+    y0, x0 = margin * ssaa, margin * ssaa
+    inner = overscan_arr[y0:y0 + bh * ssaa, x0:x0 + bw * ssaa] if margin > 0 else overscan_arr
+    ideal_img = _downscale(inner, bw, bh)
+    # dist: 直接从高分外扩图一次采样出 基准*ssaa 的畸变图, 再一次性降采样
+    dist_hi = cammod.distort_image(overscan_arr, cam_cfg, margin=margin, ssaa=ssaa)
+    dist_img = _downscale(dist_hi, bw, bh)
 
     ideal_objs, dist_objs = [], []
     for obj in meta["objects"]:

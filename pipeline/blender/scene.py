@@ -6,9 +6,11 @@ from mathutils import Vector
 from pipeline.core import camera as cammod
 
 
-def set_render_engine(engine, samples):
+def apply_render_settings(render_cfg):
+    """引擎/采样/抗锯齿滤波/色彩变换。清晰度关键: filter_size 小=更锐, view_transform=Standard 更接近真实相机。"""
     scene = bpy.context.scene
-    for ident in (engine, "BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
+    for ident in (render_cfg.get("engine", "BLENDER_EEVEE_NEXT"),
+                  "BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
         try:
             scene.render.engine = ident
             break
@@ -16,7 +18,18 @@ def set_render_engine(engine, samples):
             continue
     ee = getattr(scene, "eevee", None)
     if ee is not None and hasattr(ee, "taa_render_samples"):
-        ee.taa_render_samples = int(samples)
+        ee.taa_render_samples = int(render_cfg.get("samples", 64))
+    scene.render.filter_size = float(render_cfg.get("filter_size", 1.5))
+    vt = render_cfg.get("view_transform")
+    if vt:
+        try:
+            scene.view_settings.view_transform = vt
+        except TypeError:
+            pass
+
+
+def set_render_engine(engine, samples):
+    apply_render_settings({"engine": engine, "samples": samples})
 
 
 def get_frame():
@@ -116,7 +129,7 @@ def build_base(cfg, paths):
     gen = cfg["shelf"]["generate"] if cfg["shelf"].get("auto_generate_if_missing") else None
     mode = assets.load_shelf(paths["shelf_blend"], gen)
 
-    set_render_engine(cfg["render"]["engine"], cfg["render"]["samples"])
+    apply_render_settings(cfg["render"])
     shelf = cfg["shelf"]
     set_board_size(shelf["board_length_x"], shelf["board_width_y"], shelf["board_name_prefix"])
 

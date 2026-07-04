@@ -188,22 +188,25 @@ def _bilinear(img, mx, my):
     return out
 
 
-def distort_image(arr, cfg, iters=8, margin=0):
+def distort_image(arr, cfg, iters=8, margin=0, ssaa=1):
     """给理想针孔图加畸变。
 
-    arr: (H,W,C) 理想图; 若 margin>0, arr 应是外扩过的大图(每边多 margin),
-    输出裁回目标分辨率 (cfg.resolution)。逐目标畸变像素反解理想坐标, 加 margin 偏移后双线性采样。
+    arr: (H,W,C) 理想图; 若 margin>0, arr 应是外扩过的大图(每边多 margin, 以基准像素计)。
+    ssaa>1 时, arr 是超采样后的高分图(尺寸 = 外扩尺寸*ssaa), 本函数在 基准*ssaa 网格上
+    直接从高分图采样, 返回 (H*ssaa, W*ssaa, C) 的高分畸变图, 由调用方再做一次高质量降采样。
+    这样畸变只在最高分辨率上采样一次, 避免"先降采样再重采样"的二次模糊。
     """
     import numpy as np
 
-    fx, fy, cx, cy = intrinsics(cfg)          # 目标(标定)内参
+    fx, fy, cx, cy = intrinsics(cfg)          # 目标(标定)内参, 基准像素单位
     k1, k2, k3, p1, p2 = dist_coeffs(cfg)
     if arr.ndim == 2:
         arr = arr[..., None]
-    W, H = resolution(cfg)                    # 目标输出尺寸
-    xs, ys = np.meshgrid(np.arange(W), np.arange(H))
-    xd = (xs - cx) / fx
-    yd = (ys - cy) / fy
+    W, H = resolution(cfg)                    # 目标输出尺寸(基准)
+    Wo, Ho = W * ssaa, H * ssaa
+    xs, ys = np.meshgrid(np.arange(Wo), np.arange(Ho))
+    xd = (xs / ssaa - cx) / fx                # 输出网格换算回基准像素再归一化
+    yd = (ys / ssaa - cy) / fy
     x, y = xd.copy(), yd.copy()
     for _ in range(iters):                      # 迭代反解: 去畸变得到理想归一化坐标
         r2 = x * x + y * y
@@ -212,7 +215,7 @@ def distort_image(arr, cfg, iters=8, margin=0):
         dy = p1 * (r2 + 2.0 * y * y) + 2.0 * p2 * x * y
         x = (xd - dx) / radial
         y = (yd - dy) / radial
-    mx = (fx * x + cx + margin).astype(np.float32)   # +margin: 采样到外扩大图坐标系
-    my = (fy * y + cy + margin).astype(np.float32)
+    mx = ((fx * x + cx + margin) * ssaa).astype(np.float32)   # 采样到高分外扩图坐标系
+    my = ((fy * y + cy + margin) * ssaa).astype(np.float32)
     out = _bilinear(arr.astype(np.float32), mx, my)
     return np.clip(out, 0, 255).astype(arr.dtype) if arr.dtype != np.float32 else out

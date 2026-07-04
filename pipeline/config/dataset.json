@@ -47,7 +47,11 @@
 
   "render": {
     "engine": "BLENDER_EEVEE_NEXT",
-    "samples": 64
+    "samples": 96,
+    "ssaa": 2,
+    "view_transform": "Standard",
+    "filter_size": 0.9,
+    "sharpen": 0.0
   },
 
   "dataset": {

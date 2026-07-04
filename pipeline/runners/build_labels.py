@@ -75,7 +75,7 @@ def main():
         with open(os.path.join(frames_dir, m), "r", encoding="utf-8") as f:
             meta = json.load(f)
         fid = meta["frame_id"]
-        arr = np.array(Image.open(os.path.join(frames_dir, meta["image"])).convert("RGBA"))
+        arr = postprocess.load_overscan(os.path.join(frames_dir, meta["image"]), meta)
         res = postprocess.process_frame(meta, arr, meta["camera"])
         bw, bh = res["base_wh"]
 

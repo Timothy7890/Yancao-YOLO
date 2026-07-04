@@ -44,10 +44,11 @@ def prepare(cfg, paths):
     base = paths["base_scene"]
     if os.path.exists(base):
         bpy.ops.wm.open_mainfile(filepath=base)
-        # 清掉可能存在的历史实例
         assets.clear_instances()
     else:
         sc.build_base(cfg, paths)
+    # 无论用哪种基础场景, 都用当前配置刷新渲染设置(色彩变换/滤波/采样, 关乎清晰度)
+    sc.apply_render_settings(cfg["render"])
     return assets.build_registry(paths["sku_root"])
 
 
@@ -72,10 +73,13 @@ def main():
     scene = bpy.context.scene
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGBA"
+    ssaa = max(1, int(cfg["render"].get("ssaa", 1)))
 
     for i in range(args.start, args.start + num):
         spec = randomize.sample_scene(cfg, i, registry, board_l, board_w)
         placed, cam, base_wh, render_wh = realize.realize(cfg, spec, registry, paths["camera_config"])
+        # 超采样: 同一视角多渲 ssaa 倍像素, 后处理再 Lanczos 降采样 -> 更锐、更少锯齿
+        scene.render.resolution_percentage = 100 * ssaa
 
         img_name = f"frame_{i:06d}.png"
         scene.render.filepath = os.path.join(frames_dir, img_name)
@@ -90,6 +94,7 @@ def main():
             "base_width": base_wh[0], "base_height": base_wh[1],
             "render_width": render_wh[0], "render_height": render_wh[1],
             "overscan_margin": cfg["camera"]["overscan"],
+            "ssaa": ssaa,
             "camera": base_cam_cfg,
             "spec": spec.to_dict(),
             "objects": objs,
