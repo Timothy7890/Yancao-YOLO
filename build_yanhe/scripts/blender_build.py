@@ -1,15 +1,19 @@
-"""编排脚本 (系统 Python): 由 box_model.json 生成带贴图的 .blend。
+"""编排脚本 (系统 Python): 由某个产品的 box_model.json 生成带贴图的 .blend。
+
+目录规范: build_yanhe/<Product>/{raw, faces, box.json, box_model.json}
 
 步骤:
-  1) 读 box_model.json; 对每个面用 PIL 把校正图按 texture_flip_horizontal 水平镜像、
-     再按 texture_rotation_cw_deg 顺时针旋转, 烘焙成"最终朝向纹理", 存到临时目录。
+  1) 读 build_yanhe/<Product>/box_model.json; 对每个面用 PIL 把校正图按
+     texture_flip_horizontal 水平镜像、再按 texture_rotation_cw_deg 顺时针旋转,
+     烘焙成"最终朝向纹理", 存到临时目录。
   2) 调 Blender: blender --background --python _blend_make.py -- ... 建长方体、贴图、
      打包纹理并保存 .blend。
 
 用法:
-  python build_yanhe/scripts/blender_build.py                       # 默认输出 data/黄金叶.blend
-  python build_yanhe/scripts/blender_build.py --name 黄金叶 --out data/黄金叶.blend
-  BLENDER=/path/to/Blender python build_yanhe/scripts/blender_build.py
+  python build_yanhe/scripts/blender_build.py --product Huangjinye   # -> data/yanhe/Huangjinye.blend
+  python build_yanhe/scripts/blender_build.py --product Huangjinye --name 黄金叶 --out data/yanhe/黄金叶.blend
+  # 只有一个产品时可省略 --product
+  BLENDER=/path/to/Blender python build_yanhe/scripts/blender_build.py --product Huangjinye
 
 依赖: pillow (系统 Python)。Blender 路径默认 /Applications/Blender.app/Contents/MacOS/Blender。
 """
@@ -32,6 +36,18 @@ _MAKE = os.path.join(_HERE, "_blend_make.py")
 _DEFAULT_BLENDER = "/Applications/Blender.app/Contents/MacOS/Blender"
 
 FACE_ORDER = ["front", "back", "left", "right", "top", "bottom"]
+_RESERVED = {"scripts"}
+
+
+def list_products():
+    out = []
+    if os.path.isdir(_BUILD):
+        for d in sorted(os.listdir(_BUILD)):
+            p = os.path.join(_BUILD, d)
+            if os.path.isdir(p) and d not in _RESERVED and not d.startswith(".") \
+                    and not d.startswith("__"):
+                out.append(d)
+    return out
 
 
 def bake_texture(img_path, rot, flip, out_path):
@@ -46,22 +62,47 @@ def bake_texture(img_path, rot, flip, out_path):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="由 box_model.json 生成带贴图的 .blend")
-    ap.add_argument("--model", default=os.path.join(_BUILD, "box_model.json"))
-    ap.add_argument("--build", default=_BUILD, help="面图相对路径的根目录")
-    ap.add_argument("--name", default="黄金叶")
-    ap.add_argument("--out", default=os.path.join(_REPO, "data", "yanhe", "黄金叶.blend"))
+    ap = argparse.ArgumentParser(description="由某产品的 box_model.json 生成带贴图的 .blend")
+    ap.add_argument("--product", default=None, help="产品(SKU)名, 即 build_yanhe/<Product>")
+    ap.add_argument("--model", default=None, help="直接指定模型 JSON (覆盖 --product)")
+    ap.add_argument("--name", default=None, help="Blender 里的对象名, 默认=产品名")
+    ap.add_argument("--out", default=None, help="输出 .blend, 默认 data/yanhe/<Product>.blend")
     ap.add_argument("--blender", default=os.environ.get("BLENDER", _DEFAULT_BLENDER))
     args = ap.parse_args()
 
-    if not os.path.exists(args.model):
-        print(f"找不到模型 JSON: {args.model} (请先在网页里保存)")
+    # 确定产品与各路径
+    product = args.product
+    if product is None and args.model is None:
+        prods = list_products()
+        if len(prods) == 1:
+            product = prods[0]
+            print(f"未指定 --product, 自动选用唯一产品: {product}")
+        elif not prods:
+            print("build_yanhe 下没有产品目录, 请先在网页里新建并保存。")
+            sys.exit(1)
+        else:
+            print(f"存在多个产品, 请用 --product 指定其一: {prods}")
+            sys.exit(1)
+
+    if args.model:
+        model_path = args.model
+        product_dir = os.path.dirname(model_path)
+        product = product or os.path.basename(product_dir)
+    else:
+        product_dir = os.path.join(_BUILD, product)
+        model_path = os.path.join(product_dir, "box_model.json")
+
+    name = args.name or product
+    out = args.out or os.path.join(_REPO, "data", "yanhe", f"{product}.blend")
+
+    if not os.path.exists(model_path):
+        print(f"找不到模型 JSON: {model_path} (请先在网页里保存该产品)")
         sys.exit(1)
     if not os.path.exists(args.blender):
         print(f"找不到 Blender: {args.blender} (用 --blender 或环境变量 BLENDER 指定)")
         sys.exit(1)
 
-    with open(args.model, "r", encoding="utf-8") as f:
+    with open(model_path, "r", encoding="utf-8") as f:
         model = json.load(f)
     faces = model["faces"]
 
@@ -72,7 +113,7 @@ def main():
         if not fd or not fd.get("image"):
             print(f"  - {face}: 无贴图, 跳过")
             continue
-        img_path = os.path.join(args.build, fd["image"])
+        img_path = os.path.join(product_dir, fd["image"])
         if not os.path.exists(img_path):
             print(f"  - {face}: 找不到 {img_path}, 跳过")
             continue
@@ -82,16 +123,16 @@ def main():
         n_baked += 1
         print(f"  ✓ {face}: {fd['image']} -> 烘焙 {size[0]}x{size[1]}")
 
-    print(f"已烘焙 {n_baked} 张纹理, 调用 Blender 构建模型…")
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    print(f"[产品 {product}] 已烘焙 {n_baked} 张纹理, 调用 Blender 构建模型…")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     cmd = [args.blender, "--background", "--python", _MAKE, "--",
-           "--model", args.model, "--textures", tmp, "--out", args.out,
-           "--name", args.name]
+           "--model", model_path, "--textures", tmp, "--out", out,
+           "--name", name]
     r = subprocess.run(cmd)
     if r.returncode != 0:
         print("Blender 构建失败, 返回码", r.returncode)
         sys.exit(r.returncode)
-    print(f"\n完成 -> {args.out}")
+    print(f"\n完成 -> {out}")
 
 
 if __name__ == "__main__":

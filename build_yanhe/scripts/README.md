@@ -20,8 +20,21 @@ build_yanhe/scripts/
       style.css
 ```
 
-数据默认读写上一级 `build_yanhe/`：原图 `raw/`、面图 `faces/`、尺寸 `box.json`、
-结果 `box_model.json`（可用环境变量 `BUILD`/`RAW`/`FACES` 覆盖）。
+**多产品(SKU)目录**：每个烟盒一个目录，放在 `build_yanhe/<产品名>/` 下，互不干扰：
+
+```
+build_yanhe/
+  scripts/                     # 代码
+  Huangjinye/                  # 一个产品(SKU)
+    raw/                       # 手机原图
+    faces/                     # 校正后的面图
+    box.json                   # 三边长
+    box_model.json             # 导出的模型描述
+  <下一个SKU>/ ...
+```
+
+产品根目录默认是 `build_yanhe/`（可用环境变量 `BUILD` 覆盖）。前端顶部可选择已有产品或
+`+ 新建`；新建后把该产品的照片放进 `build_yanhe/<产品名>/raw/` 再刷新即可。
 
 ## 启动
 
@@ -35,7 +48,9 @@ python build_yanhe/scripts/web/backend/app.py            # 默认 127.0.0.1:8000
 
 ## 用法
 
-顶部先填三边长 `长X / 宽Y / 高Z` 和单位，点“保存尺寸”（写入 `box.json`）。
+顶部先在“产品”下拉里选一个已有产品，或点 `+ 新建` 建一个（如 `Huangjinye`），
+新建后把该产品照片放到 `build_yanhe/<产品名>/raw/` 再刷新。
+然后填三边长 `长X / 宽Y / 高Z` 和单位，点“保存尺寸”（写入该产品的 `box.json`）。
 
 **① 校正去背景**
 - 上方选一个面（front/back/left/right/top/bottom）。
@@ -70,5 +85,13 @@ python build_yanhe/scripts/web/backend/app.py            # 默认 127.0.0.1:8000
   （该面 TL/TR/BR/BL 的盒内 3D 坐标）、`uv`。
 - `orientation_guide`：构建步骤文字。
 
-下游构建：建对应尺寸长方体 → 每面加载 `image` → 先水平镜像（若 flip）再顺时针旋转
-`texture_rotation_cw_deg` → 把贴图四角贴到 `corners_box_coords` 的 TL/TR/BR/BL。
+下游构建：建对应尺寸长方体 → 每面加载 `image`（相对本产品目录）→ 先水平镜像（若 flip）
+再顺时针旋转 `texture_rotation_cw_deg` → 把贴图四角贴到 `corners_box_coords` 的 TL/TR/BR/BL。
+
+## 生成 Blender 模型
+
+```bash
+python build_yanhe/scripts/blender_build.py --product Huangjinye
+# 默认输出 data/yanhe/<产品名>.blend；可加 --name/--out 覆盖对象名与输出路径
+# 只有一个产品时可省略 --product
+```

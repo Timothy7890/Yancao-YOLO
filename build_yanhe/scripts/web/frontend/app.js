@@ -2,7 +2,6 @@ import { createApp, reactive, ref, nextTick, onMounted } from "vue";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-// ---------- 与后端约定的角点顺序 ----------
 const CORNER_NAMES = ["左上 TL", "右上 TR", "右下 BR", "左下 BL"];
 
 async function api(path, opts) {
@@ -15,7 +14,7 @@ async function api(path, opts) {
   return r.json();
 }
 
-// ---------- Three.js (模块级, 不放进 Vue 响应式) ----------
+// Three.js (模块级, 不放进 Vue 响应式)
 const T = {
   scene: null, camera: null, renderer: null, controls: null,
   meshes: {}, edges: null, imgCache: {}, raf: 0,
@@ -30,8 +29,8 @@ function orientCanvas(img, rot, flip) {
   cv.width = cw; cv.height = ch;
   const ctx = cv.getContext("2d");
   ctx.translate(cw / 2, ch / 2);
-  ctx.rotate((rot * Math.PI) / 180);          // 顺时针 (y 向下, 正角=顺时针)
-  if (flip) ctx.scale(-1, 1);                  // 先水平镜像 (合成顺序: 先 flip 再 rotate)
+  ctx.rotate((rot * Math.PI) / 180);
+  if (flip) ctx.scale(-1, 1);
   ctx.drawImage(img, -iw / 2, -ih / 2);
   return cv;
 }
@@ -48,15 +47,16 @@ function loadImage(url) {
 
 function disposeScene() {
   if (T.raf) cancelAnimationFrame(T.raf);
-  if (T.renderer) { T.renderer.dispose(); }
+  if (T.renderer) T.renderer.dispose();
   T.scene = null; T.camera = null; T.renderer = null; T.controls = null;
   T.meshes = {}; T.edges = null;
 }
 
-// ---------- Vue 应用 ----------
 createApp({
   setup() {
     const loaded = ref(false);
+    const products = ref([]);
+    const product = ref("");
     const step = ref(1);
     const busy = ref(false);
     const msg = ref("");
@@ -64,39 +64,69 @@ createApp({
 
     const dims = reactive({ length_x: 88, width_y: 22, height_z: 55, units: "mm" });
     const state = reactive({
-      raw: [], faces_available: [], face_order: [], faces_meta: {}, paths: {},
+      raw: [], faces_available: [], face_order: [], faces_meta: {},
     });
 
-    // step1
     const activeFace = ref("front");
     const rawSel = ref(null);
-    const corners = reactive([]);      // [{x,y}] 原图像素, 最多 4
+    const corners = reactive([]);
     const pickCanvas = ref(null);
-    const previewVer = reactive({});   // face -> 版本号 (刷新缓存)
-    let curImg = null;                 // 当前载入的原图 Image
+    const previewVer = reactive({});
+    let curImg = null;
     let drawScale = 1;
 
-    // step2 每面分配
-    const assign = reactive({});       // face -> {image, rot, flip}
+    const assign = reactive({});
     const view3d = ref(null);
 
     function setMsg(t, ok = false) { msg.value = t; msgOk.value = ok; }
-
+    function hasState() { return !!product.value && state.face_order.length > 0; }
     function faceStatus(face) {
       return !!(state.faces_meta[face] && state.faces_meta[face].image);
     }
 
+    // ---- 产品 ----
+    async function loadProducts() {
+      products.value = (await api("/api/products")).products;
+    }
+
+    async function newProduct() {
+      const name = (window.prompt("新建产品名 (字母/数字/下划线/中文):", "") || "").trim();
+      if (!name) return;
+      busy.value = true;
+      try {
+        await api("/api/products", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        await loadProducts();
+        await selectProduct(name);
+        setMsg(`已创建产品 ${name}, 请把原图放到 build_yanhe/${name}/raw/ 后刷新`, true);
+      } catch (e) { setMsg("新建失败: " + e.message); }
+      busy.value = false;
+    }
+
+    async function selectProduct(name) {
+      product.value = name;
+      T.imgCache = {};                 // 换产品清图片缓存 (同名 front.png 但不同图)
+      corners.splice(0); rawSel.value = null; curImg = null;
+      await loadState();
+      if (step.value === 2) { await nextTick(); initThree(); }
+    }
+
+    // ---- 状态 ----
     async function loadState() {
-      const s = await api("/api/state");
+      if (!product.value) return;
+      const s = await api(`/api/state?product=${encodeURIComponent(product.value)}`);
       Object.assign(state, {
         raw: s.raw, faces_available: s.faces_available,
-        face_order: s.face_order, faces_meta: s.faces_meta, paths: s.paths,
+        face_order: s.face_order, faces_meta: s.faces_meta,
       });
       if (s.dims) {
         dims.length_x = s.dims.length_x; dims.width_y = s.dims.width_y;
         dims.height_z = s.dims.height_z; dims.units = s.dims.units || "mm";
+      } else {
+        dims.length_x = 88; dims.width_y = 22; dims.height_z = 55; dims.units = "mm";
       }
-      // 初始化每面分配: 优先用现有 model, 否则用 <face>.png
       for (const f of s.face_order) {
         let a = { image: null, rot: 0, flip: false };
         if (s.model && s.model.faces && s.model.faces[f]) {
@@ -108,9 +138,8 @@ createApp({
           a.image = state.faces_meta[f].image;
         }
         assign[f] = a;
-        previewVer[f] = 0;
+        previewVer[f] = (previewVer[f] || 0) + 1;
       }
-      loaded.value = true;
     }
 
     async function saveDims() {
@@ -118,7 +147,7 @@ createApp({
       try {
         await api("/api/dims", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(dims),
+          body: JSON.stringify({ product: product.value, ...dims }),
         });
         await loadState();
         setMsg("尺寸已保存", true);
@@ -126,13 +155,16 @@ createApp({
       busy.value = false;
     }
 
-    // ----- step1 画布 -----
+    // ---- step1 画布 ----
     function faceUrl(face) {
-      return `/faces/${face}.png?v=${previewVer[face] || 0}`;
+      return `/faces/${encodeURIComponent(product.value)}/${face}.png?v=${previewVer[face] || 0}`;
     }
     function facesFileUrl(name) {
       const f = name.replace(/\.png$/i, "");
-      return `/faces/${name}?v=${previewVer[f] || 0}`;
+      return `/faces/${encodeURIComponent(product.value)}/${name}?v=${previewVer[f] || 0}`;
+    }
+    function rawUrl(name) {
+      return `/raw/${encodeURIComponent(product.value)}/${name}`;
     }
 
     function drawPick() {
@@ -145,7 +177,6 @@ createApp({
       const ctx = cv.getContext("2d");
       ctx.clearRect(0, 0, cv.width, cv.height);
       ctx.drawImage(curImg, 0, 0, cv.width, cv.height);
-      // 连线
       if (corners.length > 0) {
         ctx.lineWidth = 2; ctx.strokeStyle = "#4c9aff";
         ctx.fillStyle = "rgba(76,154,255,0.15)";
@@ -171,7 +202,7 @@ createApp({
     async function selectRaw(name) {
       rawSel.value = name;
       corners.splice(0);
-      curImg = await loadImage(`/raw/${name}`);
+      curImg = await loadImage(rawUrl(name));
       await nextTick();
       drawPick();
     }
@@ -205,7 +236,7 @@ createApp({
         const r = await api("/api/rectify", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            src: rawSel.value, face: activeFace.value,
+            product: product.value, src: rawSel.value, face: activeFace.value,
             corners: corners.map((p) => [p.x, p.y]),
           }),
         });
@@ -214,33 +245,26 @@ createApp({
         state.faces_meta[face].image = r.image;
         if (!state.faces_available.includes(r.image)) state.faces_available.push(r.image);
         assign[face] = { image: r.image, rot: 0, flip: false };
-        // 清缓存, 保证 3D 用新图
-        delete T.imgCache[`/faces/${r.image}`];
+        delete T.imgCache[`/faces/${product.value}/${r.image}`];
         setMsg(`已校正 ${face} 面 (${r.size[0]}x${r.size[1]}px)`, true);
       } catch (e) { setMsg("校正失败: " + e.message); }
       busy.value = false;
     }
 
-    // ----- step2 three -----
+    // ---- step2 three ----
     function makeFaceMesh(face) {
-      const c = state.faces_meta[face].corners; // [TL,TR,BR,BL] 各 [x,y,z]
+      const c = state.faces_meta[face].corners;
       const pos = new Float32Array([
-        ...c[0], ...c[1], ...c[2],   // TL,TR,BR
-        ...c[0], ...c[2], ...c[3],   // TL,BR,BL
+        ...c[0], ...c[1], ...c[2],
+        ...c[0], ...c[2], ...c[3],
       ]);
-      const uv = new Float32Array([
-        0, 0, 1, 0, 1, 1,
-        0, 0, 1, 1, 0, 1,
-      ]);
+      const uv = new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]);
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
       g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
       g.computeVertexNormals();
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0xbfc3cc, side: THREE.DoubleSide,
-      });
-      const mesh = new THREE.Mesh(g, mat);
-      return mesh;
+      const mat = new THREE.MeshBasicMaterial({ color: 0xbfc3cc, side: THREE.DoubleSide });
+      return new THREE.Mesh(g, mat);
     }
 
     async function updateFaceTexture(face) {
@@ -254,11 +278,11 @@ createApp({
         if (T.renderer) T.renderer.render(T.scene, T.camera);
         return;
       }
-      const url = `/faces/${a.image}?v=${previewVer[a.image.replace(/\.png$/i, "")] || 0}`;
+      const url = `/faces/${encodeURIComponent(product.value)}/${a.image}?v=${previewVer[a.image.replace(/\.png$/i, "")] || 0}`;
       const img = await loadImage(url);
       const cv = orientCanvas(img, a.rot % 360, a.flip);
       const tex = new THREE.CanvasTexture(cv);
-      tex.flipY = false;                 // uv(0,0)=贴图左上=TL
+      tex.flipY = false;
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.needsUpdate = true;
       mesh.material.map = tex;
@@ -275,9 +299,8 @@ createApp({
       T.scene.background = new THREE.Color(0x0c0e12);
       const maxDim = Math.max(dims.length_x, dims.width_y, dims.height_z);
       T.camera = new THREE.PerspectiveCamera(45, w / h, maxDim * 0.01, maxDim * 100);
-      T.camera.up.set(0, 0, 1);          // Z 朝上
-      const midZ = dims.height_z / 2;    // 原点=底面中心, 盒子中心在 z=高/2
-      // 默认从 +X/-Y/+Z 方向看, 正面(front, +X)朝向观察者
+      T.camera.up.set(0, 0, 1);
+      const midZ = dims.height_z / 2;
       T.camera.position.set(maxDim * 2.2, -maxDim * 1.4, maxDim * 1.2 + midZ);
       T.renderer = new THREE.WebGLRenderer({ antialias: true });
       T.renderer.setPixelRatio(window.devicePixelRatio);
@@ -288,14 +311,12 @@ createApp({
       T.controls.target.set(0, 0, midZ);
       T.controls.update();
 
-      // 空盒线框 (BoxGeometry 以中心为原点, 上移 高/2 使底面落在 z=0)
       const boxGeo = new THREE.BoxGeometry(dims.length_x, dims.width_y, dims.height_z);
       T.edges = new THREE.LineSegments(
         new THREE.EdgesGeometry(boxGeo),
         new THREE.LineBasicMaterial({ color: 0x4c9aff }));
       T.edges.position.z = midZ;
       T.scene.add(T.edges);
-      // 坐标轴辅助: 红 X / 绿 Y / 蓝 Z
       const axes = new THREE.AxesHelper(maxDim * 0.7);
       axes.setColors(new THREE.Color(0xff3b30), new THREE.Color(0x30d158),
                      new THREE.Color(0x0a84ff));
@@ -326,14 +347,8 @@ createApp({
 
     async function goStep(n) {
       step.value = n;
-      if (n === 2) {
-        await nextTick();
-        initThree();
-      } else {
-        disposeScene();
-        await nextTick();
-        if (rawSel.value) drawPick();
-      }
+      if (n === 2) { await nextTick(); initThree(); }
+      else { disposeScene(); await nextTick(); if (rawSel.value) drawPick(); }
     }
 
     function cycleRot(face) {
@@ -359,22 +374,26 @@ createApp({
         }
         const r = await api("/api/model", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dims, faces: facesPayload }),
+          body: JSON.stringify({ product: product.value, dims, faces: facesPayload }),
         });
-        setMsg("已保存 box_model.json -> " + r.path, true);
+        setMsg("已保存 -> " + r.path, true);
       } catch (e) { setMsg("保存失败: " + e.message); }
       busy.value = false;
     }
 
     onMounted(async () => {
-      try { await loadState(); }
-      catch (e) { setMsg("加载状态失败: " + e.message); }
+      try {
+        await loadProducts();
+        if (products.value.length) await selectProduct(products.value[0]);
+      } catch (e) { setMsg("加载失败: " + e.message); }
+      loaded.value = true;
     });
 
     return {
-      loaded, step, busy, msg, msgOk, dims, state, CORNER_NAMES,
+      loaded, products, product, step, busy, msg, msgOk, dims, state, CORNER_NAMES,
       activeFace, rawSel, corners, pickCanvas, view3d, assign,
-      faceStatus, faceUrl, facesFileUrl,
+      hasState, faceStatus, faceUrl, facesFileUrl, rawUrl,
+      loadProducts, newProduct, selectProduct,
       saveDims, selectFace, selectRaw, onCanvasClick, undoCorner, clearCorners,
       doRectify, goStep, cycleRot, toggleFlip, setFaceImage, saveModel,
     };
@@ -383,28 +402,39 @@ createApp({
 <header>
   <h1>烟盒三维建模</h1>
   <div class="dims">
+    <label>产品</label>
+    <select :value="product" @change="selectProduct($event.target.value)"
+            :style="{minWidth:'110px'}">
+      <option v-if="!products.length" value="">（无, 先新建）</option>
+      <option v-for="p in products" :key="p" :value="p">{{ p }}</option>
+    </select>
+    <button @click="newProduct" :disabled="busy">+ 新建</button>
+  </div>
+  <div class="dims" v-if="product">
     <label>长 X</label><input v-model.number="dims.length_x" />
     <label>宽 Y</label><input v-model.number="dims.width_y" />
     <label>高 Z</label><input v-model.number="dims.height_z" />
-    <label>单位</label><input type="text" v-model="dims.units" style="width:48px" />
+    <label>单位</label><input type="text" v-model="dims.units" style="width:44px" />
     <button @click="saveDims" :disabled="busy">保存尺寸</button>
   </div>
   <span class="msg" :class="{ok: msgOk}">{{ msg }}</span>
-  <div class="tabs">
+  <div class="tabs" v-if="product">
     <button :class="{active: step===1}" @click="goStep(1)">① 校正去背景</button>
     <button :class="{active: step===2}" @click="goStep(2)">② 3D 放置</button>
   </div>
 </header>
 
-<main v-if="loaded">
-  <!-- ===== Step 1 ===== -->
+<main v-if="hasState()">
   <template v-if="step===1">
     <div class="left-col col">
       <div class="hint">原图 (raw)</div>
       <div class="thumbs">
+        <div v-if="!state.raw.length" class="hint">
+          该产品还没有原图。<br/>把照片放到<br/>build_yanhe/{{ product }}/raw/<br/>后刷新页面。
+        </div>
         <div v-for="name in state.raw" :key="name" class="thumb"
              :class="{sel: rawSel===name}" @click="selectRaw(name)">
-          <img :src="'/raw/'+name" loading="lazy" />
+          <img :src="rawUrl(name)" loading="lazy" />
           <div class="cap">{{ name }}</div>
         </div>
       </div>
@@ -447,7 +477,6 @@ createApp({
     </div>
   </template>
 
-  <!-- ===== Step 2 ===== -->
   <template v-else>
     <div class="view3d" ref="view3d"></div>
     <div class="side">
@@ -476,14 +505,17 @@ createApp({
         保存 box_model.json
       </button>
       <div class="footnote">
-        约定: X=长 Y=宽 Z=高, 前/后面在 YOZ 平面(正面 front 朝 -X)。
-        蓝色线框=空盒, 彩色轴: <span style="color:#ff3b30">红X</span>
+        约定: X=长 Y=宽 Z=高, 前/后面在 YOZ 平面(正面 front 朝 +X), 原点=底面中心。
+        彩色轴: <span style="color:#ff3b30">红X</span>
         <span style="color:#30d158">绿Y</span> <span style="color:#0a84ff">蓝Z</span>。
-        导出的 JSON 含每面法线/4角坐标/贴图路径/旋转翻转, 供下游 Blender 建模。
+        导出后用 blender_build.py --product {{ product }} 生成 .blend。
       </div>
     </div>
   </template>
 </main>
+<div v-else-if="loaded" style="padding:40px;color:var(--muted)">
+  {{ product ? '加载中…' : '请在左上角选择或“+ 新建”一个产品(SKU)。' }}
+</div>
 <div v-else style="padding:40px;color:var(--muted)">加载中…</div>
 `,
 }).mount("#app");

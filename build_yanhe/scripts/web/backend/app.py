@@ -1,22 +1,31 @@
-"""烟盒三维建模网页工具 · FastAPI 后端。
+"""烟盒三维建模网页工具 · FastAPI 后端 (多产品/SKU 版)。
+
+目录规范:
+  build_yanhe/
+    scripts/                 # 代码
+    <Product>/               # 每个烟盒(SKU)一个目录, 如 Huangjinye
+      raw/                   # 手机原图
+      faces/                 # 校正后的面图
+      box.json               # 三边长
+      box_model.json         # 导出的模型描述
 
 职责:
-  - 提供前端静态页 (Vue3 + Three.js, 免打包 CDN 方案)。
-  - 列出/读取 raw 原图, 保存/读取校正后的面图 faces/。
-  - 服务端做透视校正 (复用 common.find_coeffs + PIL), 去背景。
-  - 保存/读取三边长 box.json 与最终 box_model.json (几何用 common 权威计算)。
+  - 提供前端静态页 (Vue3 + Three.js)。
+  - 列出/新建产品; 按产品读写 raw/faces/box.json/box_model.json。
+  - 服务端透视校正 (复用 common.find_coeffs + PIL) + 去背景。
 
 启动:
   python build_yanhe/scripts/web/backend/app.py            # 默认 127.0.0.1:8000
-  或 BUILD=/path RAW=/path python .../app.py --port 8000
-
-目录 (默认): build_yanhe/{raw, faces, box.json, box_model.json}
+  或 BUILD=/path python .../app.py --port 8000
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import os
+import re
 import sys
 
 from fastapi import FastAPI, HTTPException
@@ -35,16 +44,51 @@ _FRONTEND = os.path.abspath(os.path.join(_HERE, "..", "frontend"))
 sys.path.insert(0, _SCRIPTS)
 import common  # noqa: E402
 
+# 产品(SKU)目录都放在 BUILD_DIR 下; scripts 不是产品。
 BUILD_DIR = os.environ.get("BUILD", _BUILD)
-RAW_DIR = os.environ.get("RAW", os.path.join(BUILD_DIR, "raw"))
-FACES_DIR = os.environ.get("FACES", os.path.join(BUILD_DIR, "faces"))
-MODEL_PATH = os.path.join(BUILD_DIR, "box_model.json")
-
+_RESERVED = {"scripts"}
 _IMG_EXT = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
+_NAME_RE = re.compile(r"^[A-Za-z0-9_\-\u4e00-\u9fff]{1,64}$")
 
 app = FastAPI(title="Yanhe 3D Box Builder")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                    allow_headers=["*"])
+
+
+# ---------------- 产品目录 ----------------
+
+def _valid_name(name: str) -> bool:
+    return bool(name) and name not in _RESERVED and bool(_NAME_RE.match(name)) \
+        and name == os.path.basename(name)
+
+
+def product_dir(product: str) -> str:
+    if not _valid_name(product):
+        raise HTTPException(400, f"非法产品名: {product}")
+    return os.path.join(BUILD_DIR, product)
+
+
+def raw_dir(product):
+    return os.path.join(product_dir(product), "raw")
+
+
+def faces_dir(product):
+    return os.path.join(product_dir(product), "faces")
+
+
+def model_path(product):
+    return os.path.join(product_dir(product), "box_model.json")
+
+
+def list_products():
+    out = []
+    if os.path.isdir(BUILD_DIR):
+        for d in sorted(os.listdir(BUILD_DIR)):
+            p = os.path.join(BUILD_DIR, d)
+            if os.path.isdir(p) and d not in _RESERVED and not d.startswith(".") \
+                    and not d.startswith("__"):
+                out.append(d)
+    return out
 
 
 def _list_images(d):
@@ -55,10 +99,7 @@ def _list_images(d):
 
 
 def _safe_join(base, name):
-    """防目录穿越: 只允许 base 下的文件名。"""
-    name = os.path.basename(name)
-    p = os.path.join(base, name)
-    return p
+    return os.path.join(base, os.path.basename(name))
 
 
 # ---------------- 数据模型 ----------------
@@ -70,32 +111,64 @@ class Dims(BaseModel):
     units: str = "mm"
 
 
+class DimsReq(Dims):
+    product: str
+
+
+class NewProductReq(BaseModel):
+    name: str
+
+
 class RectifyReq(BaseModel):
-    src: str                        # raw 文件名
-    face: str                       # front/back/left/right/top/bottom
+    product: str
+    src: str
+    face: str
     corners: list[list[float]]      # 4 个 [x,y], 顺序 TL,TR,BR,BL (原图像素)
     long_px: int = 1200
 
 
 class FaceAssign(BaseModel):
-    image: str | None = None        # faces 文件名 (相对 faces/)
-    rot: int = 0                    # 顺时针 0/90/180/270
+    image: str | None = None
+    rot: int = 0
     flip: bool = False
 
 
 class ModelReq(BaseModel):
+    product: str
     dims: Dims
     faces: dict[str, FaceAssign]
 
 
 # ---------------- 接口 ----------------
 
+@app.get("/api/products")
+def get_products():
+    return {"products": list_products()}
+
+
+@app.post("/api/products")
+def create_product(req: NewProductReq):
+    name = (req.name or "").strip()
+    if not _valid_name(name):
+        raise HTTPException(400, "产品名只能含 字母/数字/下划线/连字符/中文, 长度≤64")
+    d = os.path.join(BUILD_DIR, name)
+    if os.path.exists(d):
+        raise HTTPException(409, f"产品已存在: {name}")
+    os.makedirs(os.path.join(d, "raw"), exist_ok=True)
+    os.makedirs(os.path.join(d, "faces"), exist_ok=True)
+    return {"ok": True, "product": name, "products": list_products()}
+
+
 @app.get("/api/state")
-def get_state():
-    dims = common.load_dims(BUILD_DIR)
+def get_state(product: str):
+    pdir = product_dir(product)
+    if not os.path.isdir(pdir):
+        raise HTTPException(404, f"产品不存在: {product}")
+    dims = common.load_dims(pdir)
     a = b = c = None
     if dims:
         a, b, c = common.dims_tuple(dims)
+    fdir = faces_dir(product)
     faces_meta = {}
     for face in common.FACE_ORDER:
         info = {
@@ -106,49 +179,50 @@ def get_state():
             fw, fh = common.face_size(face, a, b, c)
             info["size_units"] = [fw, fh]
             info["corners"] = [c.tolist() for c in common.face_corners(face, a, b, c)]
-        # 该面默认对应的已有校正图
-        fpath = _safe_join(FACES_DIR, f"{face}.png")
+        fpath = _safe_join(fdir, f"{face}.png")
         info["image"] = f"{face}.png" if os.path.exists(fpath) else None
         faces_meta[face] = info
 
     model = None
-    if os.path.exists(MODEL_PATH):
-        import json
+    mp = model_path(product)
+    if os.path.exists(mp):
         try:
-            with open(MODEL_PATH, "r", encoding="utf-8") as f:
+            with open(mp, "r", encoding="utf-8") as f:
                 model = json.load(f)
         except Exception:
             model = None
 
     return {
+        "product": product,
         "dims": dims,
-        "raw": _list_images(RAW_DIR),
-        "faces_available": _list_images(FACES_DIR),
+        "raw": _list_images(raw_dir(product)),
+        "faces_available": _list_images(fdir),
         "face_order": common.FACE_ORDER,
         "faces_meta": faces_meta,
         "model": model,
-        "paths": {"build": BUILD_DIR, "raw": RAW_DIR, "faces": FACES_DIR,
-                  "model": MODEL_PATH},
     }
 
 
 @app.post("/api/dims")
-def set_dims(d: Dims):
-    path = common.save_dims(BUILD_DIR, d.length_x, d.width_y, d.height_z, d.units)
+def set_dims(d: DimsReq):
+    pdir = product_dir(d.product)
+    if not os.path.isdir(pdir):
+        raise HTTPException(404, f"产品不存在: {d.product}")
+    path = common.save_dims(pdir, d.length_x, d.width_y, d.height_z, d.units)
     return {"ok": True, "path": path}
 
 
-@app.get("/raw/{name}")
-def get_raw(name: str):
-    p = _safe_join(RAW_DIR, name)
+@app.get("/raw/{product}/{name}")
+def get_raw(product: str, name: str):
+    p = _safe_join(raw_dir(product), name)
     if not os.path.exists(p):
         raise HTTPException(404, "raw not found")
     return FileResponse(p)
 
 
-@app.get("/faces/{name}")
-def get_face(name: str):
-    p = _safe_join(FACES_DIR, name)
+@app.get("/faces/{product}/{name}")
+def get_face(product: str, name: str):
+    p = _safe_join(faces_dir(product), name)
     if not os.path.exists(p):
         raise HTTPException(404, "face not found")
     return FileResponse(p, headers={"Cache-Control": "no-store"})
@@ -160,25 +234,23 @@ def rectify(req: RectifyReq):
         raise HTTPException(400, f"unknown face {req.face}")
     if len(req.corners) != 4:
         raise HTTPException(400, "corners must have 4 points")
-    dims = common.load_dims(BUILD_DIR)
+    pdir = product_dir(req.product)
+    dims = common.load_dims(pdir)
     if not dims:
         raise HTTPException(400, "请先设置三边长 (box.json)")
     a, b, c = common.dims_tuple(dims)
-    src_path = _safe_join(RAW_DIR, req.src)
+    src_path = _safe_join(raw_dir(req.product), req.src)
     if not os.path.exists(src_path):
         raise HTTPException(404, f"raw not found: {req.src}")
 
-    # 关键: 按 EXIF 把图转正, 使 PIL 的像素空间与浏览器显示(及描点坐标)一致。
-    # 否则手机竖拍(EXIF Orientation)时坐标错位, 框会落到错误区域并带入背景。
+    # 按 EXIF 转正, 使 PIL 像素空间与浏览器显示(描点坐标)一致。
     im = ImageOps.exif_transpose(Image.open(src_path)).convert("RGB")
 
     fw, fh = common.face_size(req.face, a, b, c)
     out_w, out_h = common.output_size(fw, fh, req.long_px)
     corners = [(float(x), float(y)) for x, y in req.corners]
 
-    # 按描点四边形的横/竖朝向决定输出方向: 保持该面真实比例, 又不会把竖拍的面
-    # 硬塞进横向框而拉伸变形。最终朝向在第②步用"旋转90°"摆正即可。
-    import math
+    # 按描点四边形横/竖朝向决定输出方向: 保持真实比例又不拉伸变形。
     w_tr = (math.dist(corners[0], corners[1]) + math.dist(corners[3], corners[2])) / 2
     h_tr = (math.dist(corners[0], corners[3]) + math.dist(corners[1], corners[2])) / 2
     if (w_tr >= h_tr) != (out_w >= out_h):
@@ -188,18 +260,21 @@ def rectify(req: RectifyReq):
     coeffs = common.find_coeffs(dst, corners)
     warped = im.transform((out_w, out_h), Image.PERSPECTIVE, coeffs,
                           resample=Image.BICUBIC).convert("RGBA")
-    os.makedirs(FACES_DIR, exist_ok=True)
+    fdir = faces_dir(req.product)
+    os.makedirs(fdir, exist_ok=True)
     out_name = f"{req.face}.png"
-    warped.save(_safe_join(FACES_DIR, out_name))
+    warped.save(_safe_join(fdir, out_name))
     return {"ok": True, "image": out_name, "size": [out_w, out_h],
             "face_size_units": [fw, fh]}
 
 
 @app.post("/api/model")
 def save_model(req: ModelReq):
-    import json
+    pdir = product_dir(req.product)
+    if not os.path.isdir(pdir):
+        raise HTTPException(404, f"产品不存在: {req.product}")
     d = req.dims
-    common.save_dims(BUILD_DIR, d.length_x, d.width_y, d.height_z, d.units)
+    common.save_dims(pdir, d.length_x, d.width_y, d.height_z, d.units)
     a, b, c = d.length_x, d.width_y, d.height_z
 
     faces_out = {}
@@ -210,9 +285,7 @@ def save_model(req: ModelReq):
         corner_map = {n: [round(float(v), 4) for v in corners[i]]
                       for i, n in enumerate(names)}
         fw, fh = common.face_size(face, a, b, c)
-        img_rel = None
-        if assign.image:
-            img_rel = os.path.relpath(_safe_join(FACES_DIR, assign.image), BUILD_DIR)
+        img_rel = f"faces/{os.path.basename(assign.image)}" if assign.image else None
         faces_out[face] = {
             "cn": common.FACE_CN[face],
             "normal": list(common.FACE_NORMAL[face]),
@@ -226,6 +299,7 @@ def save_model(req: ModelReq):
 
     data = {
         "_note": "烟盒三维模型描述 (网页工具导出)。下游按 orientation_guide 构建带贴图模型。",
+        "product": req.product,
         "convention": {
             "axes": "X=长(length_x), Y=宽(width_y), Z=高(height_z)",
             "origin": "底面中心 (盒子位于 z∈[0, height_z], XY 居中)",
@@ -237,16 +311,16 @@ def save_model(req: ModelReq):
         "faces": faces_out,
         "orientation_guide": (
             "构建步骤: 1) 建尺寸 length_x×width_y×height_z 的长方体, 原点在底面中心 (盒子位于 z∈[0,height_z], XY 居中)。 "
-            "2) 每个面若 image 非空则加载贴图; 先按 texture_flip_horizontal 水平镜像, "
+            "2) 每个面若 image 非空则加载贴图(相对本产品目录); 先按 texture_flip_horizontal 水平镜像, "
             "再按 texture_rotation_cw_deg 顺时针旋转。 "
             "3) 把贴图四角 (0,0)/(W,0)/(W,H)/(0,H) 分别贴到该面 corners_box_coords 的 "
             "TL/TR/BR/BL (盒内坐标, 单位见 convention.units)。 "
             "4) normal 为该面朝外世界法线, 正面 front 朝 +X (前/后面在 YOZ 平面), 用于判断朝向。"
         ),
     }
-    with open(MODEL_PATH, "w", encoding="utf-8") as f:
+    with open(model_path(req.product), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    return {"ok": True, "path": MODEL_PATH, "model": data}
+    return {"ok": True, "path": model_path(req.product), "model": data}
 
 
 # 前端静态页挂在根路径 (放在所有 API 之后)
@@ -260,7 +334,8 @@ def main():
     ap.add_argument("--port", type=int, default=8000)
     args = ap.parse_args()
     import uvicorn
-    print(f"[Yanhe] build={BUILD_DIR}\n[Yanhe] 打开 http://{args.host}:{args.port}/")
+    print(f"[Yanhe] build={BUILD_DIR}  产品: {list_products()}")
+    print(f"[Yanhe] 打开 http://{args.host}:{args.port}/")
     uvicorn.run(app, host=args.host, port=args.port)
 
 
