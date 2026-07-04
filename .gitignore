@@ -3,3 +3,5 @@ output/
 output-backup/
 .DS_Store
 *.pyc
+true-scence/
+picture/

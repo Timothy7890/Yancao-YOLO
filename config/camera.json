@@ -1,0 +1,35 @@
+{
+  "_note": "人形计件左眼相机。intrinsics 为标定所得 K(优先); 若无标定可删掉 intrinsics 改用 fov。mount 为固定安装角(度)。",
+
+  "resolution": { "width": 640, "height": 480 },
+
+  "intrinsics": {
+    "_note": "标定 K 矩阵(像素)。有此块时优先于 fov, 支持主点离心与 fx!=fy。RMS=0.1144px。",
+    "fx": 275.06,
+    "fy": 275.39,
+    "cx": 305.71,
+    "cy": 268.34
+  },
+
+  "fov": {
+    "_note": "仅当没有 intrinsics 时作为回退(方形像素+主点居中)。",
+    "axis": "horizontal",
+    "degrees": 98.6
+  },
+
+  "distortion": {
+    "_note": "OpenCV Brown-Conrady。标定输出顺序为 (k1,k2,p1,p2,k3), 已按名对应填入。",
+    "k1": 0.05998239,
+    "k2": -0.07112947,
+    "k3": 0.01724672,
+    "p1": -0.00037432,
+    "p2": 0.00015172
+  },
+
+  "mount": {
+    "_note": "左眼固定安装角。roll=横滚, pitch=俯仰(正=向下), yaw=偏航。yaw=0 朝 -Y(货架正前)。",
+    "roll_deg": 0.0,
+    "pitch_deg": 47.6,
+    "yaw_deg": 0.0
+  }
+}

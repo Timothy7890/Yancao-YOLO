@@ -16,11 +16,15 @@ import json
 import math
 import os
 import sys
+from datetime import datetime
 
 import bpy
 from mathutils import Vector
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
+sys.path.insert(0, os.path.join(_HERE, "..", "config"))
+import camera_config as cc  # noqa: E402
 from kp_lib import (  # noqa: E402
     KEYPOINT_ORDER, all_world_corners, is_occluded, place_camera,
     project, top_face_world_corners,
@@ -34,11 +38,17 @@ def parse_args():
     p.add_argument("--layer", type=int, default=2, help="条烟所在层(0=最底层)")
     p.add_argument("--out", default="output")
     p.add_argument("--prefix", default="shelf_kp")
+    p.add_argument("--no-stamp", action="store_true",
+                   help="关闭文件名时间戳(默认带 年月日-时分秒, 防止覆盖历史结果)")
     p.add_argument("--res", default="1024x1024")
     p.add_argument("--az", type=float, default=-90.0, help="相机方位角(度), -90=正前(-Y)")
     p.add_argument("--el", type=float, default=60.0, help="相机仰角(度), 越大越俯视")
     p.add_argument("--dist", type=float, default=0.55, help="相机到目标距离(m)")
     p.add_argument("--lens", type=float, default=35.0)
+    p.add_argument("--camera-config", default="",
+                   help="相机配置 json; 给定则用其分辨率/FOV/安装角(覆盖 --res/--el/--lens)")
+    p.add_argument("--overscan", type=int, default=0,
+                   help="每边多渲的像素数(需配合 camera-config); 加畸变后裁回, 消除边角黑边")
     p.add_argument("--yaws", type=float, nargs="*",
                    default=[0, 22, 45, 68, 90, 113, 135], help="条烟绕 Z 的偏航角列表(度)")
     return p.parse_args(argv)
@@ -97,24 +107,44 @@ def annotate(scene, cam, obj, rx, ry):
 
 def main():
     args = parse_args()
-    rx, ry = (int(v) for v in args.res.lower().split("x"))
     out_root = os.path.abspath(args.out)
     os.makedirs(os.path.join(out_root, "images"), exist_ok=True)
     os.makedirs(os.path.join(out_root, "labels"), exist_ok=True)
 
     scene = bpy.context.scene
-    scene.render.resolution_x, scene.render.resolution_y = rx, ry
-    scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
+
+    stamp = "" if args.no_stamp else datetime.now().strftime("%Y%m%d-%H%M%S")
+    prefix = args.prefix if args.no_stamp else f"{args.prefix}_{stamp}"
 
     carton = find_carton()
     cx, cy, top_z = board_top_center(args.layer)
     target = Vector((cx, cy, top_z + 0.03))
-    cam = place_camera(target, args.az, args.el, args.dist, args.lens)
 
+    if args.camera_config:
+        cfg = cc.load(os.path.abspath(args.camera_config))
+        base_w, base_h = cc.resolution(cfg)
+        render_cfg = cc.overscanned(cfg, args.overscan)   # 外扩渲染(margin=0 时原样)
+        rx, ry = cc.resolution(render_cfg)
+        cam = next((o for o in bpy.data.objects if o.type == "CAMERA"), None)
+        if cam is None:
+            cam = bpy.data.objects.new("Camera", bpy.data.cameras.new("Camera"))
+            bpy.context.collection.objects.link(cam)
+        cc.place_camera_from_config(cam, render_cfg, target, args.dist)
+        print(f"[INFO] camera from config: base={base_w}x{base_h} render={rx}x{ry} "
+              f"overscan={args.overscan} from {args.camera_config}")
+    else:
+        rx, ry = (int(v) for v in args.res.lower().split("x"))
+        scene.render.resolution_x, scene.render.resolution_y = rx, ry
+        scene.render.resolution_percentage = 100
+        base_w, base_h = rx, ry
+        cam = place_camera(target, args.az, args.el, args.dist, args.lens)
+
+    names = []
     for i, yaw in enumerate(args.yaws):
         set_yaw_on_board(carton, yaw, cx, cy, top_z)
-        name = f"{args.prefix}_{i:02d}"
+        name = f"{prefix}_{i:02d}"
+        names.append(name)
         img_rel = os.path.join("images", f"{name}.png")
         scene.render.filepath = os.path.join(out_root, img_rel)
         bpy.ops.render.render(write_still=True)
@@ -122,6 +152,7 @@ def main():
         kps, bbox = annotate(scene, cam, carton, rx, ry)
         data = {
             "image": img_rel, "width": rx, "height": ry, "pack": carton.name,
+            "overscan_margin": args.overscan, "base_width": base_w, "base_height": base_h,
             "yaw_deg": yaw, "keypoint_order": KEYPOINT_ORDER,
             "top_face_keypoints": kps, "bbox_2d": bbox,
             "camera": {"location": [round(v, 5) for v in cam.location],
@@ -131,6 +162,14 @@ def main():
             json.dump(data, f, indent=2, ensure_ascii=False)
         vis = sum(1 for k in kps if k["visible"])
         print(f"[INFO] {name}: yaw={yaw:.0f} visible={vis}/4 -> {img_rel}")
+
+    cfg_arg = args.camera_config or "config/camera.json"
+    print("\n[NEXT] 本轮生成 (时间戳=%s):" % (stamp or "无"))
+    for n in names:
+        print(f"  python3 src/verify/apply_distortion.py --config {cfg_arg} --out {args.out} --name {n}")
+        print(f"  python3 src/verify/draw_labels.py --out {args.out} --name {n}_dist")
+        if args.overscan > 0:
+            print(f"  python3 src/verify/draw_labels.py --out {args.out} --name {n}_ideal   # 640x480无畸变原图")
 
 
 if __name__ == "__main__":
