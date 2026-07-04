@@ -48,7 +48,7 @@ def prepare(cfg, paths):
         assets.clear_instances()
     else:
         sc.build_base(cfg, paths)
-    return assets.build_registry(paths["sku_dir"])
+    return assets.build_registry(paths["sku_root"])
 
 
 def main():
@@ -59,7 +59,7 @@ def main():
 
     registry = prepare(cfg, paths)
     if not registry:
-        raise SystemExit(f"[render] 没有找到 SKU: {paths['sku_dir']}")
+        raise SystemExit(f"[render] 没有可用 SKU(先跑 build_skus): {paths['sku_root']}")
     print(f"[render] SKU 登记: {list(registry.keys())}")
 
     frames_dir = os.path.join(paths["out_dir"], "frames")

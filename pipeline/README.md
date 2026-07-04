@@ -71,6 +71,40 @@ python3 pipeline/runners/build_labels.py
 把新烟盒 `.blend` 放进 `data/yanhe/`(对象为底面 z=0、顶面朝上,和黄金叶一致),
 文件名即 SKU 名。`render_dataset` 会自动扫描纳入; 想限定用哪些, 填 `placement.sku_choices`。
 
+## 交互式 Web 工具(FastAPI + Vue3)
+
+在浏览器里选品/条数/变化范围/张数/保存位置, 一键出图并写 labelme。后端不跑 bpy,
+而是编排: `build_skus`(确保 SKU 已构建) → `render_dataset`(Blender 无头) →
+`export_labelme`(加畸变 + 写 `<保存位置>/raw_img_json/*.png,*.json`, JSON 内嵌 base64)。
+
+```bash
+# 用你的 conda fastapi 环境启动(默认 127.0.0.1:8000, 可用 PORT 改端口)
+PORT=8010 /opt/anaconda3/envs/fastapi/bin/python pipeline/web/backend/app.py
+# 浏览器打开 http://127.0.0.1:8010/
+```
+
+- 前端控件: SKU 多选+各自条数、偏航范围、平移抖动、放置层、顶灯功率/环境光范围、张数、
+  保存位置、训练图类型(畸变/理想), 渲染后右侧缩略图预览。
+- 产物: `<保存位置>/raw_img_json/<时间戳>_XXXXXX.{png,json}`(labelme 可直接打开);
+  中间渲染件在 `<保存位置>/_work/frames/`。
+- Blender 路径默认 `/Applications/Blender.app/...`, 可用环境变量 `BLENDER` 覆盖。
+
+## SKU 来源与构建
+
+SKU = `build_yanhe/<名>/`(含 `box_model.json` + `faces/`), 标注名 = 文件夹名。
+渲染前需先把每个 SKU 构建成 `<名>/<名>.blend`(对象名=文件夹名):
+
+```bash
+python3 pipeline/runners/build_skus.py           # 缺失/过期才重建; --force 强制
+```
+
+Web 后端会在每次渲染前自动跑一次 build_skus。
+
+## labelme 标注格式
+
+每条烟的**顶面四点**(物体系 TL,TR,BR,BL)构成一个 `polygon`, `label` = SKU 名;
+`imageData` 内嵌整图 base64。见 `core/labelme.py`。
+
 ## 关键点约定
 
 顶面四角按**物体自身坐标系**固定为 `TL, TR, BR, BL`(与偏航无关, 保证 pose 语义稳定);

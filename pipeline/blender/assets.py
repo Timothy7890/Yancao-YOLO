@@ -1,18 +1,20 @@
 """资产装载(bpy): SKU 烟盒登记表 + 货架加载/生成。
 
 约定:
-  - 每个 SKU 是 data/yanhe/<名>.blend, 内含一个网格对象(名字可含中文)。
+  - SKU 源 = build_yanhe/<名>/(含 box_model.json + faces/); 标注名 = 文件夹名(如 Huangjinye)。
+  - 每个 SKU 预构建成 build_yanhe/<名>/<名>.blend(见 runners/build_skus.py), 对象名 = <名>。
   - SKU 模板 append 进隐藏集合, 命名 SKU__<名>; 每次摆放由模板复制实例。
   - 货架: 若 shelf_blend 存在则 append 其全部对象; 否则(允许时)用 build_shelf 参数化生成。
 """
 
-import glob
+import json
 import os
 
 import bpy
 
 _TEMPLATE_PREFIX = "SKU__"
 _HIDDEN_COLL = "SKU_Templates"
+_RESERVED_DIRS = {"scripts"}
 
 
 def _hidden_collection():
@@ -23,12 +25,22 @@ def _hidden_collection():
     return coll
 
 
-def scan_skus(sku_dir):
-    """返回 {sku_name: blend_path}, sku_name = 文件名(去扩展名)。"""
+def scan_skus(sku_root):
+    """扫描 build_yanhe 子目录, 返回 {name: {"dir","model","blend"}}。
+
+    仅收录含 box_model.json 的子目录; blend 路径 = <dir>/<name>.blend(可能尚未构建)。
+    """
     out = {}
-    for path in sorted(glob.glob(os.path.join(sku_dir, "*.blend"))):
-        name = os.path.splitext(os.path.basename(path))[0]
-        out[name] = path
+    if not os.path.isdir(sku_root):
+        return out
+    for d in sorted(os.listdir(sku_root)):
+        if d in _RESERVED_DIRS or d.startswith(".") or d.startswith("__"):
+            continue
+        ddir = os.path.join(sku_root, d)
+        model = os.path.join(ddir, "box_model.json")
+        if os.path.isdir(ddir) and os.path.exists(model):
+            out[d] = {"dir": ddir, "model": model,
+                      "blend": os.path.join(ddir, f"{d}.blend")}
     return out
 
 
@@ -50,12 +62,19 @@ def _append_largest_mesh(path):
     return template
 
 
-def build_registry(sku_dir):
-    """append 每个 SKU 模板并读取底面尺寸, 返回登记表。"""
+def build_registry(sku_root):
+    """append 每个已构建 SKU 模板并读取底面尺寸, 返回登记表。
+
+    未构建(<name>.blend 不存在)的 SKU 会被跳过并告警, 请先跑 runners/build_skus.py。
+    """
     coll = _hidden_collection()
     registry = {}
-    for name, path in scan_skus(sku_dir).items():
-        tmpl = _append_largest_mesh(path)
+    for name, info in scan_skus(sku_root).items():
+        blend = info["blend"]
+        if not os.path.exists(blend):
+            print(f"[assets] 跳过未构建 SKU: {name} (缺 {os.path.basename(blend)}, 先跑 build_skus)")
+            continue
+        tmpl = _append_largest_mesh(blend)
         tmpl.name = _TEMPLATE_PREFIX + name
         for c in list(tmpl.users_collection):
             c.objects.unlink(tmpl)
@@ -63,7 +82,7 @@ def build_registry(sku_dir):
         tmpl.hide_render = True
         tmpl.hide_set(True)
         d = tmpl.dimensions
-        registry[name] = {"path": path, "object": tmpl.name,
+        registry[name] = {"blend": blend, "object": tmpl.name,
                           "length_x": d.x, "width_y": d.y, "height_z": d.z}
     return registry
 

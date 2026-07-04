@@ -2,7 +2,7 @@
   "_note": "批量合成数据集主配置。路径相对仓库根。需手工确定的两处已标 <手工>: shelf.board_length_x/width_y 与 camera.distance/work_layer。",
 
   "paths": {
-    "sku_dir": "data/yanhe",
+    "sku_root": "build_yanhe",
     "shelf_blend": "data/jiazi/shelf.blend",
     "camera_config": "config/camera.json",
     "base_scene": "data/jiazi/base_scene.blend",
@@ -38,6 +38,7 @@
     "layers": [1, 2],
     "count_per_layer": [1, 4],
     "sku_choices": [],
+    "composition": null,
     "yaw_deg": [-25.0, 25.0],
     "gap_m": 0.012,
     "edge_margin_m": 0.02,

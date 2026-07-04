@@ -37,14 +37,25 @@ def sample_scene(cfg, frame_id, sku_registry, board_length_x, board_width_y):
                        max_yaw, pl["gap_m"], pl["edge_margin_m"])
 
     layer = rng.choice(pl["layers"])
-    lo, hi = pl["count_per_layer"]
-    count = min(rng.randint(lo, hi), len(cells))
-    chosen = rng.sample(cells, count) if count > 0 else []
 
+    # 显式组成: {name: count} 或 [name, name, ...]; 否则回退到"随机数量+随机品种"
+    comp = pl.get("composition")
+    if comp:
+        if isinstance(comp, dict):
+            want = [n for n, c in comp.items() for _ in range(int(c)) if n in sku_registry]
+        else:
+            want = [n for n in comp if n in sku_registry]
+        rng.shuffle(want)
+        skus_for_cells = want[:len(cells)]
+    else:
+        lo, hi = pl["count_per_layer"]
+        count = min(rng.randint(lo, hi), len(cells))
+        skus_for_cells = [rng.choice(choices) for _ in range(count)]
+
+    chosen = rng.sample(cells, len(skus_for_cells)) if skus_for_cells else []
     jit = pl["pos_jitter_m"]
     placements = []
-    for (cx, cy) in chosen:
-        sku = rng.choice(choices)
+    for (cx, cy), sku in zip(chosen, skus_for_cells):
         placements.append(Placement(
             sku=sku,
             x=cx + _u(rng, -jit, jit),
