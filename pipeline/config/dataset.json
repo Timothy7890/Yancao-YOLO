@@ -28,6 +28,10 @@
     "jitter": { "pos_m": 0.03, "yaw_deg": 2.0, "pitch_deg": 2.0, "distance_m": 0.08 }
   },
 
+  "_scene_note": "整场景绕 Z 旋转角(度, 俯视顺时针为负)。-90=相机从 X 方向看过去; 货架/相机/灯同步旋转, 画面不变仅换坐标约定。",
+  "scene_z_rotation_deg": -90.0,
+
+
   "lights": {
     "preset": "factory_led",
     "top_power": [150.0, 260.0],

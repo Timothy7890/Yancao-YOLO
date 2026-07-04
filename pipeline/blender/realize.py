@@ -29,6 +29,7 @@ def realize(cfg, spec, registry, camera_config_path):
     cam, base_wh, render_wh = sc.setup_camera(
         camera_config_path, spec.layer, spec.camera.distance,
         cam_cfg["target_z_offset"], spec.camera.yaw_off_deg, spec.camera.pitch_off_deg,
-        tuple(spec.camera.pos_off), prefix, cam_cfg["overscan"])
+        tuple(spec.camera.pos_off), prefix, cam_cfg["overscan"],
+        global_yaw_deg=cfg.get("scene_z_rotation_deg", 0.0))
     bpy.context.view_layer.update()
     return placed, cam, base_wh, render_wh

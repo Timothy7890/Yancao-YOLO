@@ -49,6 +49,8 @@ def prepare(cfg, paths):
         sc.build_base(cfg, paths)
     # 无论用哪种基础场景, 都用当前配置刷新渲染设置(色彩变换/滤波/采样, 关乎清晰度)
     sc.apply_render_settings(cfg["render"])
+    # 整场景绕 Z 旋转(幂等; 若 base_scene 已烘焙旋转则跳过)
+    sc.orient_shelf(cfg.get("scene_z_rotation_deg", 0.0), cfg["shelf"]["board_name_prefix"])
     return assets.build_registry(paths["sku_root"])
 
 
@@ -67,7 +69,9 @@ def main():
     os.makedirs(frames_dir, exist_ok=True)
 
     shelf = cfg["shelf"]
-    board_l, board_w = shelf["board_length_x"], shelf["board_width_y"]
+    # 板长宽从实际板面测量(随场景旋转自动交换 X/Y), 用于建格
+    _rect = sc.board_rect(cfg["camera"]["work_layer"], shelf["board_name_prefix"])
+    board_l, board_w = _rect["length_x"], _rect["width_y"]
     base_cam_cfg = cammod.load(paths["camera_config"])   # 基础(未外扩)内参+畸变, 供后处理
 
     scene = bpy.context.scene

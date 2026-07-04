@@ -70,6 +70,36 @@ def set_board_size(length_x, width_y, prefix="Shelf_Board_"):
     bpy.context.view_layer.update()
 
 
+def orient_shelf(angle_deg, prefix="Shelf_Board_"):
+    """把货架(立柱框架+隔板, 横梁作为子物体跟随)整体绕 Z 旋转 angle_deg。
+
+    绕货架 XY 中心旋转; 幂等(打标记, 重复调用/已烘焙进 base_scene 不会二次旋转)。
+    恰好 90° 时板仍轴对齐, 因此后续世界坐标下的摆放/建格无需改动。
+    """
+    import math
+
+    from mathutils import Matrix
+
+    if abs(angle_deg) < 1e-9:
+        return
+    frame = get_frame()
+    boards = [o for o in bpy.data.objects if o.name.startswith(prefix)]
+    tops = [o for o in ([frame] + boards) if o and o.parent is None]
+    if not tops or any(o.get("yc_scene_rotated") for o in tops):
+        return
+    pts = [o.matrix_world @ Vector(c) for o in tops for c in o.bound_box]
+    px = sum(p.x for p in pts) / len(pts)
+    py = sum(p.y for p in pts) / len(pts)
+    pivot = Vector((px, py, 0.0))
+    R = (Matrix.Translation(pivot)
+         @ Matrix.Rotation(math.radians(angle_deg), 4, "Z")
+         @ Matrix.Translation(-pivot))
+    for o in tops:
+        o.matrix_world = R @ o.matrix_world
+        o["yc_scene_rotated"] = 1
+    bpy.context.view_layer.update()
+
+
 def board_rect(layer, prefix="Shelf_Board_"):
     """返回某层隔板板面信息: {cx, cy, top_z, length_x, width_y}。"""
     boards = sorted([o for o in bpy.data.objects if o.name.startswith(prefix)],
@@ -85,15 +115,18 @@ def board_rect(layer, prefix="Shelf_Board_"):
 
 def setup_camera(camera_config_path, layer, distance, target_z_offset,
                  yaw_off_deg=0.0, pitch_off_deg=0.0, pos_off=(0, 0, 0),
-                 prefix="Shelf_Board_", overscan=0):
-    """按标定相机(可叠加抖动)对准某层板心上方。返回 (cam_obj, base_wh, render_wh)。"""
+                 prefix="Shelf_Board_", overscan=0, global_yaw_deg=0.0):
+    """按标定相机(可叠加抖动)对准某层板心上方。返回 (cam_obj, base_wh, render_wh)。
+
+    global_yaw_deg: 整场景绕 Z 旋转带来的相机方位角偏移(与 orient_shelf 同角度), 使相机随货架一起转。
+    """
     cfg = cammod.load(camera_config_path)
     base_w, base_h = cammod.resolution(cfg)
-    # 叠加抖动到安装角
-    if yaw_off_deg or pitch_off_deg:
+    # 叠加抖动+全局场景旋转到安装角
+    if yaw_off_deg or pitch_off_deg or global_yaw_deg:
         cfg = cammod.cc.json.loads(cammod.cc.json.dumps(cfg))
         m = cfg.setdefault("mount", {})
-        m["yaw_deg"] = m.get("yaw_deg", 0.0) + yaw_off_deg
+        m["yaw_deg"] = m.get("yaw_deg", 0.0) + yaw_off_deg + global_yaw_deg
         m["pitch_deg"] = m.get("pitch_deg", 0.0) + pitch_off_deg
     render_cfg = cammod.overscanned(cfg, overscan) if overscan > 0 else cfg
     rect = board_rect(layer, prefix)
@@ -132,6 +165,8 @@ def build_base(cfg, paths):
     apply_render_settings(cfg["render"])
     shelf = cfg["shelf"]
     set_board_size(shelf["board_length_x"], shelf["board_width_y"], shelf["board_name_prefix"])
+    scene_yaw = cfg.get("scene_z_rotation_deg", 0.0)
+    orient_shelf(scene_yaw, shelf["board_name_prefix"])
 
     lg = cfg["lights"]
     apply_factory_lights(sum(lg["top_power"]) / 2.0, sum(lg["ambient"]) / 2.0,
@@ -139,7 +174,8 @@ def build_base(cfg, paths):
 
     cam = cfg["camera"]
     setup_camera(paths["camera_config"], cam["work_layer"], cam["distance"],
-                 cam["target_z_offset"], prefix=shelf["board_name_prefix"], overscan=0)
+                 cam["target_z_offset"], prefix=shelf["board_name_prefix"], overscan=0,
+                 global_yaw_deg=scene_yaw)
     return {"shelf_mode": mode, "generated": mode == "generated"}
 
 
