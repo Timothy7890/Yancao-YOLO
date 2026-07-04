@@ -42,7 +42,17 @@
     "yaw_deg": [-25.0, 25.0],
     "gap_m": 0.012,
     "edge_margin_m": 0.02,
-    "pos_jitter_m": 0.008
+    "pos_jitter_m": 0.008,
+    "arrangements": { "dense": 0.4, "mixed": 0.35, "scatter": 0.25 },
+    "dense": {
+      "base_yaw_deg": [0.0],
+      "yaw_jitter_deg": 4.0,
+      "pos_jitter_m": 0.004,
+      "gap_m": 0.006,
+      "edge_margin_m": 0.015,
+      "fill_ratio": [0.6, 1.0],
+      "outlier_frac": 0.15
+    }
   },
 
   "render": {
