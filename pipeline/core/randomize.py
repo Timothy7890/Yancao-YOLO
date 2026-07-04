@@ -6,7 +6,7 @@
 
 import random
 
-from .layout import grid_cells
+from .layout import grid_cells, obb_overlap
 from .spec import CameraPose, Lights, Placement, SceneSpec
 
 
@@ -54,14 +54,30 @@ def sample_scene(cfg, frame_id, sku_registry, board_length_x, board_width_y):
 
     chosen = rng.sample(cells, len(skus_for_cells)) if skus_for_cells else []
     jit = pl["pos_jitter_m"]
+    gap = pl["gap_m"]
     placements = []
+    placed_obb = []  # (cx,cy,lx,ly,yaw) 已接受的烟盒, 用于碰撞检测
     for (cx, cy), sku in zip(chosen, skus_for_cells):
-        placements.append(Placement(
-            sku=sku,
-            x=cx + _u(rng, -jit, jit),
-            y=cy + _u(rng, -jit, jit),
-            yaw_deg=_u(rng, pl["yaw_deg"][0], pl["yaw_deg"][1]),
-        ))
+        lx = sku_registry[sku]["length_x"]
+        wy = sku_registry[sku]["width_y"]
+        # 抖动+偏航若与已放置的重叠(要求至少间隔 gap)则重试; 再不行退回格心;
+        # 连格心都撞(极端偏航/格子紧)就丢弃本条 —— 宁可少放, 绝不重叠。
+        best = None
+        for attempt in range(24):
+            if attempt < 20:
+                x = cx + _u(rng, -jit, jit)
+                y = cy + _u(rng, -jit, jit)
+            else:
+                x, y = cx, cy                          # 兜底: 回到格心
+            yaw = _u(rng, pl["yaw_deg"][0], pl["yaw_deg"][1])
+            cand = (x, y, lx, wy, yaw)
+            if not any(obb_overlap(cand, o, margin=gap) for o in placed_obb):
+                best = cand
+                break
+        if best is None:
+            continue                                   # 放不下, 跳过这条烟盒
+        placed_obb.append(best)
+        placements.append(Placement(sku=sku, x=best[0], y=best[1], yaw_deg=best[4]))
 
     cam = cfg["camera"]
     cj = cam["jitter"]
